@@ -1,0 +1,21 @@
+# Build artifacts
+build/
+PezCalSync.app/
+.build/
+
+# Python
+venv/
+__pycache__/
+*.pyc
+
+# macOS
+.DS_Store
+
+# Xcode
+*.xcodeproj/
+*.xcworkspace/
+xcuserdata/
+
+# Credentials
+credentials.json
+token.json
