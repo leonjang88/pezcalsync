@@ -3,23 +3,29 @@ import SwiftUI
 
 // MARK: - Icon Registry
 // Single source of truth for all icon types, colors, and SF Symbol mappings.
-// To add a new icon type: just add an entry to `iconTypes`.
-// To add a new color: just add an entry to `allColors`.
 
 struct IconType {
     let name: String
     let displayName: String
-    let sfSymbol: String          // SF Symbol for "circle" or single variant
-    let sfSymbolFilled: String?   // SF Symbol for "filled" variant (nil = no variants)
+    let sfBase: String              // e.g. "briefcase"
+    let sfFilled: String            // e.g. "briefcase.fill"
+    let sfCircle: String?           // e.g. "briefcase.circle" (nil = no circle variant)
+    let sfCircleFilled: String?     // e.g. "briefcase.circle.fill"
 
-    var hasVariants: Bool { sfSymbolFilled != nil }
+    var hasCircle: Bool { sfCircle != nil }
 
-    func sfSymbolName(variant: String) -> String {
-        if variant == "filled", let filled = sfSymbolFilled {
-            return filled
+    /// Returns the SF Symbol for the given state.
+    /// - circle: whether the user chose the circle variant
+    /// - filled: true for synced events, false for unsynced
+    func sfSymbolName(circle: Bool, filled: Bool) -> String {
+        if circle, let c = sfCircle, let cf = sfCircleFilled {
+            return filled ? cf : c
         }
-        return sfSymbol
+        return filled ? sfFilled : sfBase
     }
+
+    /// The display symbol shown in the icon picker (always filled).
+    var previewSymbol: String { sfFilled }
 }
 
 struct IconColor {
@@ -30,21 +36,30 @@ struct IconColor {
 }
 
 // MARK: - All available icon types
-// Add new icon types here — everything else updates automatically.
 
 let iconTypes: [IconType] = [
-    IconType(name: "brief",     displayName: "Briefcase",  sfSymbol: "briefcase.circle",           sfSymbolFilled: "briefcase.circle.fill"),
-    IconType(name: "person",    displayName: "Person",     sfSymbol: "person.circle",              sfSymbolFilled: "person.circle.fill"),
-    IconType(name: "badminton", displayName: "Badminton",  sfSymbol: "figure.badminton.circle.fill", sfSymbolFilled: nil),
-    IconType(name: "box",       displayName: "Box",        sfSymbol: "shippingbox.circle.fill",    sfSymbolFilled: nil),
-    IconType(name: "suitcase",  displayName: "Suitcase",   sfSymbol: "suitcase.circle",            sfSymbolFilled: "suitcase.circle.fill"),
-    IconType(name: "star",      displayName: "Star",       sfSymbol: "star.circle",                sfSymbolFilled: "star.circle.fill"),
-    IconType(name: "heart",     displayName: "Heart",      sfSymbol: "heart.circle",               sfSymbolFilled: "heart.circle.fill"),
-    IconType(name: "flag",      displayName: "Flag",       sfSymbol: "flag.circle",                sfSymbolFilled: "flag.circle.fill"),
+    IconType(name: "brief",     displayName: "Briefcase",   sfBase: "briefcase",             sfFilled: "briefcase.fill",                  sfCircle: "briefcase.circle",              sfCircleFilled: "briefcase.circle.fill"),
+    IconType(name: "person",    displayName: "Person",      sfBase: "person",                sfFilled: "person.fill",                     sfCircle: "person.circle",                 sfCircleFilled: "person.circle.fill"),
+    IconType(name: "badminton", displayName: "Badminton",   sfBase: "figure.badminton",      sfFilled: "figure.badminton",                sfCircle: "figure.badminton.circle",       sfCircleFilled: "figure.badminton.circle.fill"),
+    IconType(name: "box",       displayName: "Box",         sfBase: "shippingbox",           sfFilled: "shippingbox.fill",                sfCircle: "shippingbox.circle",            sfCircleFilled: "shippingbox.circle.fill"),
+    IconType(name: "suitcase",  displayName: "Suitcase",    sfBase: "suitcase",              sfFilled: "suitcase.fill",                   sfCircle: "suitcase.circle",               sfCircleFilled: "suitcase.circle.fill"),
+    IconType(name: "star",      displayName: "Star",        sfBase: "star",                  sfFilled: "star.fill",                       sfCircle: "star.circle",                   sfCircleFilled: "star.circle.fill"),
+    IconType(name: "heart",     displayName: "Heart",       sfBase: "heart",                 sfFilled: "heart.fill",                      sfCircle: "heart.circle",                  sfCircleFilled: "heart.circle.fill"),
+    IconType(name: "flag",      displayName: "Flag",        sfBase: "flag",                  sfFilled: "flag.fill",                       sfCircle: "flag.circle",                   sfCircleFilled: "flag.circle.fill"),
+    IconType(name: "banknote",  displayName: "Dollar Bill", sfBase: "banknote",              sfFilled: "banknote.fill",                   sfCircle: nil,                             sfCircleFilled: nil),
+    IconType(name: "house",     displayName: "House",       sfBase: "house",                 sfFilled: "house.fill",                      sfCircle: "house.circle",                  sfCircleFilled: "house.circle.fill"),
+    IconType(name: "airplane",  displayName: "Airplane",    sfBase: "airplane",              sfFilled: "airplane",                        sfCircle: "airplane.circle",               sfCircleFilled: "airplane.circle.fill"),
+    IconType(name: "car",       displayName: "Car",         sfBase: "car",                   sfFilled: "car.fill",                        sfCircle: "car.circle",                    sfCircleFilled: "car.circle.fill"),
+    IconType(name: "building",  displayName: "Building",    sfBase: "building.2",            sfFilled: "building.2.fill",                 sfCircle: "building.2.crop.circle",        sfCircleFilled: "building.2.crop.circle.fill"),
+    IconType(name: "ferry",     displayName: "Ferry",       sfBase: "ferry",                 sfFilled: "ferry.fill",                      sfCircle: nil,                             sfCircleFilled: nil),
+    IconType(name: "laptop",    displayName: "Laptop",      sfBase: "laptopcomputer",        sfFilled: "laptopcomputer",                  sfCircle: "laptopcomputer.circle",         sfCircleFilled: "laptopcomputer.circle.fill"),
+    IconType(name: "phone",     displayName: "Phone",       sfBase: "phone",                 sfFilled: "phone.fill",                      sfCircle: "phone.circle",                  sfCircleFilled: "phone.circle.fill"),
+    IconType(name: "envelope",  displayName: "Envelope",    sfBase: "envelope",              sfFilled: "envelope.fill",                   sfCircle: "envelope.circle",               sfCircleFilled: "envelope.circle.fill"),
+    IconType(name: "terminal",  displayName: "Terminal",    sfBase: "terminal",              sfFilled: "terminal.fill",                   sfCircle: "terminal.circle",               sfCircleFilled: "terminal.circle.fill"),
+    IconType(name: "hammer",    displayName: "Hammer",      sfBase: "hammer",                sfFilled: "hammer.fill",                     sfCircle: "hammer.circle",                 sfCircleFilled: "hammer.circle.fill"),
 ]
 
 // MARK: - All available colors
-// Add new colors here — everything else updates automatically.
 
 let allColors: [IconColor] = [
     IconColor(name: "blue",   displayName: "Blue",   nsColor: .systemBlue,   swiftUIColor: .blue),
@@ -74,53 +89,51 @@ func iconType(named name: String) -> IconType? {
 }
 
 func iconColor(named name: String) -> IconColor? {
-    // Support "grey" as alias for "gray"
     let normalized = name == "grey" ? "gray" : name
     return allColors.first { $0.name == normalized }
 }
 
 // MARK: - Descriptor ↔ Components
+// Descriptor format: "type-color" or "type-color-circle"
+// e.g. "brief-purple", "brief-purple-circle"
 
-/// Builds a descriptor string like "brief-purple-filled" or "badminton-yellow"
 func buildIconDescriptor(type: String, color: String, variant: String) -> String {
-    if variant.isEmpty {
-        return "\(type)-\(color)"
+    if variant == "circle" {
+        return "\(type)-\(color)-circle"
     }
-    return "\(type)-\(color)-\(variant)"
+    return "\(type)-\(color)"
 }
 
-/// Parses a descriptor string back into (type, color, variant).
-/// Handles legacy ".png" suffixes for backward compatibility.
 func parseIconDescriptor(_ descriptor: String) -> (type: String, color: String, variant: String) {
     let name = descriptor.replacingOccurrences(of: ".png", with: "")
-    // Sort types longest-first so "suitcase" doesn't match before a hypothetical longer name
     let sortedTypes = iconTypes.sorted { $0.name.count > $1.name.count }
     for iconType in sortedTypes {
         let prefix = iconType.name + "-"
         if name.hasPrefix(prefix) {
             let rest = String(name.dropFirst(prefix.count))
-            if iconType.hasVariants {
-                for variant in ["filled", "circle"] {
-                    if rest.hasSuffix("-" + variant) {
-                        let color = String(rest.dropLast(variant.count + 1))
-                        return (iconType.name, color, variant)
-                    }
-                }
-                return (iconType.name, rest, "circle")
-            } else {
-                return (iconType.name, rest, "")
+            if rest.hasSuffix("-circle") {
+                let color = String(rest.dropLast("-circle".count))
+                return (iconType.name, color, "circle")
             }
+            // Legacy: handle old "-filled" descriptors as non-circle
+            if rest.hasSuffix("-filled") {
+                let color = String(rest.dropLast("-filled".count))
+                return (iconType.name, color, "")
+            }
+            return (iconType.name, rest, "")
         }
     }
-    return ("brief", "blue", "circle")
+    // Legacy: handle old combined names like "briefcircle", "boxcircle", etc.
+    return ("brief", "blue", "")
 }
 
 // MARK: - SF Symbol Resolution
 
-/// Returns the SF Symbol name for a given icon descriptor like "brief-purple-filled"
-func sfSymbolName(forDescriptor descriptor: String) -> String {
+/// Returns the SF Symbol for a descriptor, defaulting to filled (synced) appearance.
+func sfSymbolName(forDescriptor descriptor: String, filled: Bool = true) -> String {
     let parsed = parseIconDescriptor(descriptor)
-    return iconType(named: parsed.type)?.sfSymbolName(variant: parsed.variant) ?? "briefcase.circle"
+    let isCircle = parsed.variant == "circle"
+    return iconType(named: parsed.type)?.sfSymbolName(circle: isCircle, filled: filled) ?? "briefcase.fill"
 }
 
 /// Returns the NSColor for a given icon descriptor
@@ -134,14 +147,14 @@ func swiftUIColor(forName name: String) -> Color {
     iconColor(named: name)?.swiftUIColor ?? .blue
 }
 
-/// Returns the SF Symbol name for a given type and variant
+/// Returns the SF Symbol name for a given type and variant (used in settings preview)
 func sfSymbolName(forType type: String, variant: String) -> String {
-    iconType(named: type)?.sfSymbolName(variant: variant) ?? "briefcase.circle"
+    let isCircle = variant == "circle"
+    return iconType(named: type)?.sfSymbolName(circle: isCircle, filled: true) ?? "briefcase.fill"
 }
 
 // MARK: - NSImage Creation
 
-/// Creates a colored SF Symbol NSImage using hierarchical rendering for gradient effect.
 func createColoredSFSymbol(name: String, color: NSColor, size: CGFloat = 16) -> NSImage? {
     guard let image = NSImage(systemSymbolName: name, accessibilityDescription: nil) else { return nil }
     let sizeConfig = NSImage.SymbolConfiguration(pointSize: size, weight: .regular)
@@ -150,9 +163,16 @@ func createColoredSFSymbol(name: String, color: NSColor, size: CGFloat = 16) -> 
     return image.withSymbolConfiguration(combined) ?? image
 }
 
-/// Creates a colored SF Symbol NSImage from an icon descriptor like "brief-purple-filled"
+/// Creates a filled (synced) icon image from a descriptor
 func createIconImage(forDescriptor descriptor: String, size: CGFloat = 16) -> NSImage? {
-    let symbolName = sfSymbolName(forDescriptor: descriptor)
+    let symbolName = sfSymbolName(forDescriptor: descriptor, filled: true)
+    let color = nsColor(forDescriptor: descriptor)
+    return createColoredSFSymbol(name: symbolName, color: color, size: size)
+}
+
+/// Creates an unfilled (unsynced) icon image from a descriptor
+func createUnfilledIconImage(forDescriptor descriptor: String, size: CGFloat = 16) -> NSImage? {
+    let symbolName = sfSymbolName(forDescriptor: descriptor, filled: false)
     let color = nsColor(forDescriptor: descriptor)
     return createColoredSFSymbol(name: symbolName, color: color, size: size)
 }

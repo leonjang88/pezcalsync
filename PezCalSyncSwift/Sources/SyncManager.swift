@@ -18,11 +18,16 @@ final class SyncManager {
     private(set) var lastSyncTime: Date?
     private(set) var lastSyncStatus: SyncStatus = .idle
 
+    /// Cooldown: ignore sync triggers for a few seconds after a sync completes.
+    private var syncCooldownUntil: Date?
+    private let syncCooldown: TimeInterval = 5.0
+
     /// Called on the main thread when a sync run finishes.
     var onSyncComplete: ((SyncStatus) -> Void)?
 
-    /// Minimum interval between syncs (Story 3.3 throttle).
-    private let minimumSyncInterval: TimeInterval = 30
+    /// Whether a sync was requested while one is already running.
+    private var pendingSync: Bool = false
+
 
     /// Periodic sync timer (Story 3.4).
     private var periodicTimer: Timer?
@@ -62,12 +67,16 @@ final class SyncManager {
     // MARK: - Run Sync (Story 3.1)
 
     func runSync() {
-        guard PreferencesManager.shared.preferences.calendarSyncEnabled else {
-            NSLog("[SyncManager] Calendar sync is disabled, skipping.")
+        let prefs = PreferencesManager.shared.preferences
+        guard prefs.calendarSyncEnabled || prefs.blockingEnabled else {
+            NSLog("[SyncManager] Both calendar sync and blocking are disabled, skipping.")
             return
         }
-        guard !isSyncing else {
-            NSLog("[SyncManager] Sync already in progress, skipping.")
+
+        // If already syncing, queue up another run
+        if isSyncing {
+            NSLog("[SyncManager] Sync already in progress, queuing follow-up.")
+            pendingSync = true
             return
         }
 
@@ -85,7 +94,6 @@ final class SyncManager {
             let pythonPath = self.locatePython()
             NSLog("[SyncManager] Using Python at: %@", pythonPath)
 
-            // Script 1: calendar_sync_eventkit.py (always runs)
             let script1 = "\(self.scriptDirectory)/calendar_sync_eventkit.py"
             let result1 = self.runScript(pythonPath: pythonPath, scriptPath: script1)
 
@@ -149,27 +157,35 @@ final class SyncManager {
 
     private func finishSync(status: SyncStatus) {
         DispatchQueue.main.async {
-            self.isSyncing = false
+            // If there's a pending sync, run it immediately instead of finishing
+            if self.pendingSync {
+                self.pendingSync = false
+                self.isSyncing = false
+                NSLog("[SyncManager] Running queued follow-up sync.")
+                self.runSync()
+                return
+            }
+
             self.lastSyncStatus = status
             if status == .success || status == .failed {
                 self.lastSyncTime = Date()
             }
+
+            self.isSyncing = false
+            self.syncCooldownUntil = Date().addingTimeInterval(self.syncCooldown)
             self.onSyncComplete?(status)
-            // Reset periodic timer after any sync (Story 3.4)
             self.resetPeriodicTimer()
         }
     }
 
     // MARK: - Throttled Sync (Story 3.3)
 
-    /// Triggers a sync only if the minimum interval has elapsed since the last sync.
+    /// Triggers a sync from store-change notifications. Skips if in cooldown period.
     func runSyncThrottled() {
-        if let lastTime = lastSyncTime {
-            let elapsed = Date().timeIntervalSince(lastTime)
-            if elapsed < minimumSyncInterval {
-                NSLog("[SyncManager] Throttled: only %.0fs since last sync (min %0.fs).", elapsed, minimumSyncInterval)
-                return
-            }
+        if let cooldown = syncCooldownUntil, Date() < cooldown {
+            NSLog("[SyncManager] Ignoring sync trigger — cooldown active (%.0fs remaining).",
+                  cooldown.timeIntervalSinceNow)
+            return
         }
         runSync()
     }

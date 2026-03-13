@@ -11,6 +11,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     /// Work item for reverting a temporary menubar icon back to idle.
     private var iconRevertWorkItem: DispatchWorkItem?
 
+    /// Timer for spinning the sync icon.
+    private var spinTimer: Timer?
+    private var spinAngle: CGFloat = 0
+
     // Story 6.2 - Launch at Login: Placeholder
     // TODO: Implement Launch at Login using SMAppService.mainApp.register()
     // when building as a proper app bundle with entitlements.
@@ -54,6 +58,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Story 3.4: Start periodic background sync timer
         syncManager.startPeriodicTimer()
+
+        // Sync on launch
+        syncManager.runSync()
     }
 
     // MARK: - Menubar Icon Helpers (Story 6.1)
@@ -89,8 +96,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     /// Updates the menubar icon based on sync state (Stories 3.2 & 6.1).
     private func updateMenuBarIcon() {
         if syncManager.isSyncing {
-            setMenuBarIcon("arrow.trianglehead.2.clockwise.rotate.90")
+            startSpinning()
         } else {
+            stopSpinning()
             switch syncManager.lastSyncStatus {
             case .success:
                 setMenuBarIconTemporarily("checkmark.circle.fill", duration: 3.0)
@@ -100,6 +108,43 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 setMenuBarIcon("calendar.circle")
             }
         }
+    }
+
+    private func startSpinning() {
+        guard spinTimer == nil else { return }
+        spinAngle = 0
+        setSyncIconRotated()
+        spinTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+            self?.spinAngle += 30
+            if self?.spinAngle ?? 0 >= 360 { self?.spinAngle = 0 }
+            self?.setSyncIconRotated()
+        }
+    }
+
+    private func stopSpinning() {
+        spinTimer?.invalidate()
+        spinTimer = nil
+    }
+
+    private func setSyncIconRotated() {
+        guard let button = statusItem.button,
+              let baseImage = NSImage(systemSymbolName: "arrow.trianglehead.2.clockwise.rotate.90", accessibilityDescription: nil) else { return }
+        let config = NSImage.SymbolConfiguration(pointSize: 18, weight: .regular)
+        let configured = baseImage.withSymbolConfiguration(config) ?? baseImage
+        let size = configured.size
+
+        let rotated = NSImage(size: size)
+        rotated.lockFocus()
+        let transform = NSAffineTransform()
+        transform.translateX(by: size.width / 2, yBy: size.height / 2)
+        transform.rotate(byDegrees: -spinAngle)
+        transform.translateX(by: -size.width / 2, yBy: -size.height / 2)
+        transform.concat()
+        configured.draw(in: NSRect(origin: .zero, size: size))
+        rotated.unlockFocus()
+
+        rotated.isTemplate = true
+        button.image = rotated
     }
 
     /// Builds the full menu structure. Can be called again to refresh.
@@ -192,6 +237,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
             let sprintItem = NSMenuItem(title: sprintText, action: nil, keyEquivalent: "")
             sprintItem.isEnabled = false
+            if let runImage = createColoredSFSymbol(name: "figure.run", color: .white, size: 14) {
+                sprintItem.image = runImage
+            }
             menu.addItem(sprintItem)
             menu.addItem(NSMenuItem.separator())
         }
@@ -259,8 +307,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
                     // Story 2.3: Set calendar icon on the menu item
                     if let dc = displayCalendar(for: event, in: prefs.displayCalendars) {
-                        if let image = createIconImage(forDescriptor: dc.icon, size: 18) {
-                            item.image = image
+                        let isPast = event.isAllDay || event.endDate < now
+                        if isPast {
+                            // Past event — grey icon
+                            let symbolName = sfSymbolName(forDescriptor: dc.icon, filled: true)
+                            if let image = createColoredSFSymbol(name: symbolName, color: .systemGray, size: 18) {
+                                item.image = image
+                            }
+                        } else if isExcludedFromSync(event: event, prefs: prefs) {
+                            // Unsynced — use outline variant
+                            if let image = createUnfilledIconImage(forDescriptor: dc.icon, size: 18) {
+                                item.image = image
+                            }
+                        } else {
+                            // Synced — use filled variant
+                            if let image = createIconImage(forDescriptor: dc.icon, size: 18) {
+                                item.image = image
+                            }
                         }
                     }
 
@@ -278,21 +341,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             syncItem.isEnabled = false
         }
         menu.addItem(syncItem)
-
-        let statusText: String
-        switch syncManager.lastSyncStatus {
-        case .idle:
-            statusText = "Status: Idle"
-        case .syncing:
-            statusText = "Status: Syncing..."
-        case .success:
-            statusText = "Status: Idle"
-        case .failed:
-            statusText = "Status: Last sync failed"
-        }
-        let statusMenuItem = NSMenuItem(title: statusText, action: nil, keyEquivalent: "")
-        statusMenuItem.isEnabled = false
-        menu.addItem(statusMenuItem)
 
         let lastSyncText: String
         if let lastTime = syncManager.lastSyncTime {
@@ -324,6 +372,32 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     // MARK: - Icon Helpers
+
+    /// Checks if an event is excluded from sync (matches an excluded pattern on the sync source calendar).
+    private func isExcludedFromSync(event: EKEvent, prefs: Preferences) -> Bool {
+        guard prefs.calendarSyncEnabled,
+              let source = prefs.calendarSyncSourceCalendar,
+              let ekCal = event.calendar,
+              ekCal.title == source.name,
+              (ekCal.source?.title ?? "") == source.source,
+              !prefs.calendarSyncExcludedPatterns.isEmpty,
+              let title = event.title else {
+            return false
+        }
+        let titleLower = title.lowercased()
+        for pattern in prefs.calendarSyncExcludedPatterns where !pattern.isEmpty {
+            let patternLower = pattern.lowercased()
+            if patternLower.contains("*") || patternLower.contains("?") {
+                // Simple glob: convert to check
+                let base = patternLower.replacingOccurrences(of: "*", with: "")
+                    .replacingOccurrences(of: "?", with: "")
+                if titleLower.hasPrefix(base) { return true }
+            } else {
+                if titleLower.contains(patternLower) { return true }
+            }
+        }
+        return false
+    }
 
     /// Finds the DisplayCalendar entry matching an EKEvent's calendar.
     private func displayCalendar(for event: EKEvent, in displayCalendars: [DisplayCalendar]) -> DisplayCalendar? {

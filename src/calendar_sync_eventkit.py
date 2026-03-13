@@ -27,11 +27,9 @@ except ImportError:
 # CONFIGURATION - Loaded from preferences
 # ============================================================================
 
-# Path to store mapping
 APP_SUPPORT_DIR = Path.home() / "Library" / "Application Support" / "CalendarSync"
 APP_SUPPORT_DIR.mkdir(parents=True, exist_ok=True)
 DATA_DIR = APP_SUPPORT_DIR
-PERSONAL_BLOCK_MAPPING_FILE = DATA_DIR / "personal_block_mapping.json"
 
 
 def _load_config():
@@ -39,16 +37,25 @@ def _load_config():
     from settings_window import load_preferences
     prefs = load_preferences()
     return {
-        'days_ahead': prefs.get('days_ahead', 14),
-        'days_back': prefs.get('days_back', 1),
+        'days_ahead': 365,  # Sync 1 year ahead
+        'days_back': 7,    # Clean up a week back
+        # Blocking: personal calendars → work calendar
         'personal_calendar_names': [c['name'] for c in prefs.get('personal_calendars', [])],
+        'personal_calendar_sources': {c['name']: c.get('source', '') for c in prefs.get('personal_calendars', [])},
         'work_calendar_name': prefs.get('work_calendar', {}).get('name') if prefs.get('work_calendar') else None,
-        'blocking_event_title': prefs.get('blocking_event_title', 'apt'),
+        'work_calendar_source': prefs.get('work_calendar', {}).get('source', '') if prefs.get('work_calendar') else '',
+        'blocking_enabled': prefs.get('blocking_enabled', True),
+        'blocking_event_title': prefs.get('blocking_event_title', 'Appointment'),
         'blocking_work_hours_only': prefs.get('blocking_work_hours_only', True),
         'blocking_start_hour': prefs.get('blocking_start_hour', 8),
         'blocking_end_hour': prefs.get('blocking_end_hour', 20),
         'blocking_weekdays_only': prefs.get('blocking_weekdays_only', True),
         'min_blocking_duration_minutes': prefs.get('min_blocking_duration_minutes', 15),
+        'excluded_patterns': prefs.get('calendar_sync_excluded_patterns', []),
+        # Calendar sync: source → destination
+        'calendar_sync_enabled': prefs.get('calendar_sync_enabled', False),
+        'sync_source': prefs.get('calendar_sync_source_calendar'),  # {name, source} dict
+        'sync_destination': prefs.get('calendar_sync_destination'),  # {name, source} dict
     }
 
 
@@ -58,11 +65,36 @@ DAYS_BACK = 1
 PERSONAL_CALENDAR_NAMES = ["Personal Cal"]
 WORK_CALENDAR_NAME = "Calendar"
 BLOCKING_EVENT_TITLE = "apt"
+AUTO_MARKER = "\u200b"  # Zero-width space — invisible marker for auto-created events
 BLOCKING_WORK_HOURS_ONLY = True
 BLOCKING_START_HOUR = 8
 BLOCKING_END_HOUR = 20
 BLOCKING_WEEKDAYS_ONLY = True
 MIN_BLOCKING_DURATION_MINUTES = 15
+
+
+# ============================================================================
+# Pattern Matching
+# ============================================================================
+
+def _matches_excluded(title: str, patterns: list) -> bool:
+    """Check if a title matches any excluded pattern.
+    Supports simple glob: 'lunch*' matches any title starting with 'lunch'.
+    Plain pattern does substring match: '1:1' matches '1:1 John'.
+    """
+    import fnmatch
+    title_lower = title.lower()
+    for p in patterns:
+        if not p:
+            continue
+        p_lower = p.lower()
+        if '*' in p_lower or '?' in p_lower:
+            if fnmatch.fnmatch(title_lower, p_lower):
+                return True
+        else:
+            if p_lower in title_lower:
+                return True
+    return False
 
 
 # ============================================================================
@@ -95,26 +127,6 @@ def request_calendar_access() -> bool:
 
 
 # ============================================================================
-# Mapping Persistence
-# ============================================================================
-
-def load_personal_block_mapping() -> Dict:
-    """Load the personal event → work blocking event mapping."""
-    if PERSONAL_BLOCK_MAPPING_FILE.exists():
-        try:
-            with open(PERSONAL_BLOCK_MAPPING_FILE, 'r') as f:
-                return json.load(f)
-        except (json.JSONDecodeError, IOError):
-            pass
-    return {}
-
-
-def save_personal_block_mapping(mapping: Dict):
-    """Save the personal event → work blocking event mapping."""
-    with open(PERSONAL_BLOCK_MAPPING_FILE, 'w') as f:
-        json.dump(mapping, f, indent=2)
-
-
 # ============================================================================
 # Personal Calendar Events
 # ============================================================================
@@ -189,16 +201,24 @@ def get_personal_calendar_events_with_config(days_back: int, days_ahead: int, ca
     skipped_short = 0
     skipped_work_hours = 0
     skipped_all_day = 0
-    
+    skipped_excluded = 0
+
     blocking_work_hours_only = config.get('blocking_work_hours_only', True)
     min_duration = config.get('min_blocking_duration_minutes', 15)
+    excluded_patterns = config.get('excluded_patterns', [])
     
     for event in events:
         # Skip all-day events
         if event.isAllDay():
             skipped_all_day += 1
             continue
-        
+
+        # Skip events matching excluded patterns
+        title = str(event.title() or "")
+        if excluded_patterns and _matches_excluded(title, excluded_patterns):
+            skipped_excluded += 1
+            continue
+
         start_ts = event.startDate().timeIntervalSince1970()
         end_ts = event.endDate().timeIntervalSince1970()
         start_dt = datetime.datetime.fromtimestamp(start_ts)
@@ -215,8 +235,11 @@ def get_personal_calendar_events_with_config(days_back: int, days_ahead: int, ca
             skipped_short += 1
             continue
         
+        # Use eventIdentifier + start time as key to handle recurring events
+        # (all occurrences share the same eventIdentifier)
+        occurrence_key = f"{event.eventIdentifier()}_{start_dt.isoformat()}"
         event_data = {
-            'apple_id': str(event.eventIdentifier()),
+            'apple_id': occurrence_key,
             'title': str(event.title() or "(No Title)"),
             'start': start_dt,
             'end': end_dt,
@@ -227,6 +250,8 @@ def get_personal_calendar_events_with_config(days_back: int, days_ahead: int, ca
     
     if skipped_all_day > 0:
         print(f"   Skipped {skipped_all_day} all-day events")
+    if skipped_excluded > 0:
+        print(f"   Skipped {skipped_excluded} events matching excluded patterns")
     if skipped_work_hours > 0:
         print(f"   Skipped {skipped_work_hours} events outside work hours")
     if skipped_short > 0:
@@ -244,22 +269,28 @@ def get_work_calendar(store):
     return get_work_calendar_by_name(store, WORK_CALENDAR_NAME)
 
 
-def get_work_calendar_by_name(store, calendar_name: str):
-    """Get a calendar by name."""
+def get_work_calendar_by_name(store, calendar_name: str, calendar_source: str = ''):
+    """Get a calendar by name and optionally source."""
     all_calendars = store.calendarsForEntityType_(EventKit.EKEntityTypeEvent)
+    # Try matching by both name and source first
+    if calendar_source:
+        for cal in all_calendars:
+            if cal.title() == calendar_name and cal.source().title() == calendar_source:
+                return cal
+    # Fall back to name-only match
     for cal in all_calendars:
         if cal.title() == calendar_name:
             return cal
     return None
 
 
-def get_existing_apt_events(store, work_calendar, days_back: int = 1, days_ahead: int = 14) -> List[Dict]:
-    """Get existing 'apt' events from the work calendar (legacy, uses global constant)."""
-    return get_existing_apt_events_with_config(store, work_calendar, days_back, days_ahead, BLOCKING_EVENT_TITLE)
+def fetch_blocking_events(store, work_calendar, days_back: int, days_ahead: int, blocking_title: str) -> tuple:
+    """Fetch all blocking events from the work calendar.
 
-
-def get_existing_apt_events_with_config(store, work_calendar, days_back: int, days_ahead: int, blocking_title: str) -> List[Dict]:
-    """Get existing blocking events from the work calendar (manually created ones)."""
+    Returns (all_blocking, auto_blocking) where:
+    - all_blocking: all events matching the blocking title (for duplicate detection)
+    - auto_blocking: only auto-created ones (for cleanup/deletion)
+    """
     start_date = datetime.datetime.now() - datetime.timedelta(days=days_back)
     end_date = datetime.datetime.now() + datetime.timedelta(days=days_ahead)
 
@@ -270,40 +301,42 @@ def get_existing_apt_events_with_config(store, work_calendar, days_back: int, da
         ns_start, ns_end, [work_calendar]
     )
     events = store.eventsMatchingPredicate_(predicate)
-    
-    apt_events = []
+
+    all_blocking = []
+    auto_blocking = []
     for event in events:
         title = str(event.title() or '')
-        if title.lower() == blocking_title.lower():
-            notes = str(event.notes() or '')
-            # Skip events we created automatically
-            if '[Auto-blocked from personal calendar]' in notes:
-                continue
-            
-            start_dt = datetime.datetime.fromtimestamp(event.startDate().timeIntervalSince1970())
-            end_dt = datetime.datetime.fromtimestamp(event.endDate().timeIntervalSince1970())
-            
-            apt_events.append({
-                'id': str(event.eventIdentifier()),
-                'start': start_dt,
-                'end': end_dt,
-            })
-    
-    return apt_events
-    
-    return apt_events
+        if title.lower() != blocking_title.lower():
+            continue
+
+        start_dt = datetime.datetime.fromtimestamp(event.startDate().timeIntervalSince1970())
+        end_dt = datetime.datetime.fromtimestamp(event.endDate().timeIntervalSince1970())
+        notes = str(event.notes() or '')
+        is_auto = AUTO_MARKER in notes or '[Auto-blocked from personal calendar]' in notes
+
+        entry = {
+            'id': str(event.eventIdentifier()),
+            'start': start_dt,
+            'end': end_dt,
+            'start_iso': start_dt.isoformat(),
+            'end_iso': end_dt.isoformat(),
+            'is_auto': is_auto,
+            'notes': notes,
+        }
+        all_blocking.append(entry)
+        if is_auto:
+            auto_blocking.append(entry)
+
+    return all_blocking, auto_blocking
 
 
-def is_covered_by_existing_apt(personal_event: dict, apt_events: List[Dict]) -> bool:
-    """Check if a personal event is fully covered by an existing apt event."""
-    personal_start = personal_event['start']
-    personal_end = personal_event['end']
-    
-    for apt in apt_events:
-        if apt['start'] <= personal_start and apt['end'] >= personal_end:
-            return True
-    
-    return False
+def find_matching_blocking_event(personal_event: dict, blocking_events: list) -> Optional[dict]:
+    """Find a blocking event that matches a personal event by time."""
+    for blk in blocking_events:
+        if (blk['start_iso'] == personal_event['start_iso'] and
+            blk['end_iso'] == personal_event['end_iso']):
+            return blk
+    return None
 
 
 def create_blocking_event_on_work_calendar(store, work_calendar, personal_event: dict, blocking_title: str = None) -> Optional[str]:
@@ -319,7 +352,7 @@ def create_blocking_event_on_work_calendar(store, work_calendar, personal_event:
         event.setStartDate_(ns_start)
         event.setEndDate_(ns_end)
         
-        event.setNotes_(f"[Auto-blocked from personal calendar]\nOriginal: {personal_event['title']}")
+        event.setNotes_(blocking_title + AUTO_MARKER)
         
         success = store.saveEvent_span_error_(event, EventKit.EKSpanThisEvent, None)
         
@@ -346,7 +379,7 @@ def update_blocking_event_on_work_calendar(store, work_event_id: str, personal_e
         event.setStartDate_(ns_start)
         event.setEndDate_(ns_end)
         
-        event.setNotes_(f"[Auto-blocked from personal calendar]\nOriginal: {personal_event['title']}")
+        event.setNotes_(blocking_title + AUTO_MARKER)
         
         success = store.saveEvent_span_error_(event, EventKit.EKSpanThisEvent, None)
         return success
@@ -375,33 +408,39 @@ def delete_blocking_event_from_work_calendar(store, work_event_id: str) -> bool:
 # Main Sync Function
 # ============================================================================
 
-def sync_calendars(event_store=None):
-    """Main sync function - syncs personal calendar events to work calendar as blocking events."""
-    
+def sync_calendars(event_store=None, config=None):
+    """Blocking sync - syncs personal calendar events to work calendar as blocking events."""
+
     # Load config from preferences
-    config = _load_config()
-    
+    if config is None:
+        config = _load_config()
+
+    if not config.get('blocking_enabled', True):
+        print("⏭️  Calendar blocking is disabled, skipping.")
+        return {'success': True, 'created': 0, 'updated': 0, 'deleted': 0, 'unchanged': 0}
+
     personal_calendar_names = config['personal_calendar_names'] or PERSONAL_CALENDAR_NAMES
     work_calendar_name = config['work_calendar_name'] or WORK_CALENDAR_NAME
+    work_calendar_source = config.get('work_calendar_source', '')
     days_back = config['days_back']
     days_ahead = config['days_ahead']
     blocking_event_title = config['blocking_event_title']
-    
+
     print("=" * 70)
     print("  Personal Calendar → Work Calendar Blocking")
     print("=" * 70)
     print(f"  Personal calendars: {personal_calendar_names}")
-    print(f"  Work calendar: {work_calendar_name}")
-    
+    print(f"  Work calendar: {work_calendar_name} ({work_calendar_source})")
+
     # Get or create event store
     if event_store is None:
         event_store = EventKit.EKEventStore.alloc().init()
         access_granted = request_calendar_access()
         if not access_granted:
             return {'success': False, 'error': 'Calendar access denied'}
-    
+
     store = event_store
-    
+
     # Get personal events
     print(f"\n👤 Fetching personal calendar events...")
     personal_events = get_personal_calendar_events_with_config(
@@ -415,139 +454,284 @@ def sync_calendars(event_store=None):
     print(f"   Found {len(personal_events)} events to block")
     
     # Get work calendar
-    work_calendar = get_work_calendar_by_name(store, work_calendar_name)
+    work_calendar = get_work_calendar_by_name(store, work_calendar_name, work_calendar_source)
     if not work_calendar:
-        print(f"❌ Work calendar '{work_calendar_name}' not found")
+        print(f"❌ Work calendar '{work_calendar_name}' ({work_calendar_source}) not found")
         return {'success': False, 'error': f'Work calendar not found'}
-    
-    # Rename existing blocking events if the title has changed
-    renamed = 0
-    for personal_id, stored in mapping.items():
-        work_event_id = stored.get('work_event_id')
-        if not work_event_id:
-            continue
-        try:
-            ev = store.eventWithIdentifier_(work_event_id)
-            if ev and str(ev.title()) != blocking_event_title:
-                ev.setTitle_(blocking_event_title)
-                store.saveEvent_span_error_(ev, EventKit.EKSpanThisEvent, None)
-                renamed += 1
-        except Exception:
-            pass
-    if renamed > 0:
-        print(f"   ✏️  Renamed {renamed} existing blocking events to '{blocking_event_title}'")
 
-    # Get existing manual blocking events to avoid duplicates
-    existing_apt_events = get_existing_apt_events_with_config(
+    # Fetch existing blocking events from work calendar (source of truth)
+    all_blocking, auto_blocking = fetch_blocking_events(
         store, work_calendar, days_back, days_ahead, blocking_event_title
     )
-    print(f"   Found {len(existing_apt_events)} existing manual '{blocking_event_title}' events on work calendar")
-    
-    # Load existing mapping
-    mapping = load_personal_block_mapping()
-    print(f"\n📋 Loaded mapping with {len(mapping)} previously blocked events")
-    
-    # Build current personal event IDs
-    current_personal_ids = {e['apple_id']: e for e in personal_events}
-    
+    print(f"   Found {len(all_blocking)} blocking events on work calendar ({len(auto_blocking)} auto-created)")
+
     # Track stats
+    created = 0
+    deleted = 0
+    unchanged = 0
+
+    # Track which auto-blocked events are still needed (for cleanup)
+    matched_auto_ids = set()
+
+    print(f"\n🔄 Syncing blocking events...")
+
+    for event in personal_events:
+        # Check if any blocking event (manual or auto) already covers this time
+        match = find_matching_blocking_event(event, all_blocking)
+        if match:
+            unchanged += 1
+            if match['is_auto']:
+                matched_auto_ids.add(match['id'])
+        else:
+            # No blocking event exists for this personal event — create one
+            print(f"   ➕ Creating block for: {event['title']} ({event['start'].strftime('%m/%d %H:%M')}-{event['end'].strftime('%H:%M')})")
+            create_blocking_event_on_work_calendar(store, work_calendar, event, blocking_event_title)
+            created += 1
+
+    # Delete orphaned auto-blocked events (no matching personal event)
+    for blk in auto_blocking:
+        if blk['id'] not in matched_auto_ids:
+            print(f"   🗑️  Removing orphaned auto-block: {blk['start'].strftime('%m/%d %H:%M')}-{blk['end'].strftime('%H:%M')}")
+            delete_blocking_event_from_work_calendar(store, blk['id'])
+            deleted += 1
+    
+    # Print summary
+    print(f"\n" + "=" * 70)
+    print(f"  ✅ Blocking Sync Complete!")
+    print(f"=" * 70)
+    print(f"   ➕ Created:   {created}")
+    print(f"   🗑️  Deleted:   {deleted}")
+    print(f"   ⏸️  Unchanged: {unchanged}")
+    print(f"=" * 70)
+
+    return {'success': True, 'created': created, 'deleted': deleted, 'unchanged': unchanged}
+
+
+# ============================================================================
+# Calendar Sync: Source → Destination
+# ============================================================================
+
+def sync_source_to_destination(event_store=None, config=None):
+    """Sync events from source calendar to destination calendar (mirroring)."""
+
+    if config is None:
+        config = _load_config()
+
+    if not config.get('calendar_sync_enabled', False):
+        print("\n⏭️  Calendar sync is disabled, skipping.")
+        return {'success': True, 'created': 0, 'updated': 0, 'deleted': 0, 'unchanged': 0}
+
+    sync_source = config.get('sync_source')
+    sync_dest = config.get('sync_destination')
+
+    if not sync_source or not sync_dest:
+        print("\n⏭️  Calendar sync source or destination not configured, skipping.")
+        return {'success': True, 'created': 0, 'updated': 0, 'deleted': 0, 'unchanged': 0}
+
+    days_back = config['days_back']
+    days_ahead = config['days_ahead']
+    excluded_patterns = config.get('excluded_patterns', [])
+
+    print("\n" + "=" * 70)
+    print("  Calendar Sync: Source → Destination")
+    print("=" * 70)
+    print(f"  Source: {sync_source['name']} ({sync_source.get('source', '')})")
+    print(f"  Destination: {sync_dest['name']} ({sync_dest.get('source', '')})")
+
+    # Get or create event store
+    if event_store is None:
+        event_store = EventKit.EKEventStore.alloc().init()
+        access_granted = request_calendar_access()
+        if not access_granted:
+            return {'success': False, 'error': 'Calendar access denied'}
+
+    store = event_store
+
+    # Resolve source and destination calendars
+    source_cal = get_work_calendar_by_name(store, sync_source['name'], sync_source.get('source', ''))
+    if not source_cal:
+        print(f"❌ Source calendar '{sync_source['name']}' not found")
+        return {'success': False, 'error': 'Source calendar not found'}
+
+    dest_cal = get_work_calendar_by_name(store, sync_dest['name'], sync_dest.get('source', ''))
+    if not dest_cal:
+        print(f"❌ Destination calendar '{sync_dest['name']}' not found")
+        return {'success': False, 'error': 'Destination calendar not found'}
+
+    # Fetch source events
+    start_date = datetime.datetime.now() - datetime.timedelta(days=days_back)
+    end_date = datetime.datetime.now() + datetime.timedelta(days=days_ahead)
+    ns_start = NSDate.dateWithTimeIntervalSince1970_(start_date.timestamp())
+    ns_end = NSDate.dateWithTimeIntervalSince1970_(end_date.timestamp())
+
+    predicate = store.predicateForEventsWithStartDate_endDate_calendars_(ns_start, ns_end, [source_cal])
+    source_events = store.eventsMatchingPredicate_(predicate)
+
+    print(f"\n📅 Fetching source calendar events...")
+
+    event_list = []
+    skipped_excluded = 0
+    for event in source_events:
+        if event.status() == 3:  # cancelled
+            continue
+
+        title = str(event.title() or "(No Title)")
+
+        # Skip events matching excluded patterns
+        if excluded_patterns and _matches_excluded(title, excluded_patterns):
+            skipped_excluded += 1
+            continue
+
+        start_ts = event.startDate().timeIntervalSince1970()
+        end_ts = event.endDate().timeIntervalSince1970()
+
+        # Use eventIdentifier + start time as key to handle recurring events
+        start_iso = datetime.datetime.fromtimestamp(start_ts).isoformat()
+        occurrence_key = f"{event.eventIdentifier()}_{start_iso}"
+
+        event_list.append({
+            'source_id': occurrence_key,
+            'title': title,
+            'start_ts': start_ts,
+            'end_ts': end_ts,
+            'start_iso': start_iso,
+            'end_iso': datetime.datetime.fromtimestamp(end_ts).isoformat(),
+            'is_all_day': bool(event.isAllDay()),
+        })
+
+    print(f"   Found {len(event_list)} events to sync")
+    if skipped_excluded > 0:
+        print(f"   Skipped {skipped_excluded} events matching excluded patterns")
+
+    # Fetch ALL existing events on destination calendar
+    dest_predicate = store.predicateForEventsWithStartDate_endDate_calendars_(ns_start, ns_end, [dest_cal])
+    dest_events_raw = store.eventsMatchingPredicate_(dest_predicate)
+
+    dest_all_events = []
+    dest_auto_events = []
+    for ev in dest_events_raw:
+        dest_start = datetime.datetime.fromtimestamp(ev.startDate().timeIntervalSince1970())
+        dest_end = datetime.datetime.fromtimestamp(ev.endDate().timeIntervalSince1970())
+        notes = str(ev.notes() or '')
+        is_auto = AUTO_MARKER in notes
+        entry = {
+            'id': str(ev.eventIdentifier()),
+            'title': str(ev.title() or ''),
+            'start_iso': dest_start.isoformat(),
+            'end_iso': dest_end.isoformat(),
+            'is_auto': is_auto,
+        }
+        dest_all_events.append(entry)
+        if is_auto:
+            dest_auto_events.append(entry)
+
+    print(f"   Found {len(dest_all_events)} total events on destination ({len(dest_auto_events)} auto-synced)")
+
     created = 0
     updated = 0
     deleted = 0
     unchanged = 0
-    skipped_covered = 0
-    
-    # Process creates and updates
-    print(f"\n🔄 Syncing blocking events...")
-    
-    for personal_id, event in current_personal_ids.items():
-        # Check if this event is already covered by an existing manual "apt" event
-        if is_covered_by_existing_apt(event, existing_apt_events):
-            if personal_id in mapping:
-                stored = mapping[personal_id]
-                print(f"   🔄 Removing auto-block (covered by manual apt): {event['title']}")
-                delete_blocking_event_from_work_calendar(store, stored['work_event_id'])
-                del mapping[personal_id]
-                deleted += 1
-            else:
-                skipped_covered += 1
-            continue
-        
-        if personal_id in mapping:
-            stored = mapping[personal_id]
-            work_event_id = stored['work_event_id']
-            
-            if (stored.get('start_iso') != event['start_iso'] or
-                stored.get('end_iso') != event['end_iso']):
-                
-                print(f"   📝 Updating block for: {event['title']}")
-                if update_blocking_event_on_work_calendar(store, work_event_id, event):
-                    mapping[personal_id] = {
-                        'work_event_id': work_event_id,
-                        'title': event['title'],
-                        'start_iso': event['start_iso'],
-                        'end_iso': event['end_iso'],
-                    }
-                    updated += 1
-                else:
-                    new_work_id = create_blocking_event_on_work_calendar(store, work_calendar, event, blocking_event_title)
-                    if new_work_id:
-                        mapping[personal_id] = {
-                            'work_event_id': new_work_id,
-                            'title': event['title'],
-                            'start_iso': event['start_iso'],
-                            'end_iso': event['end_iso'],
-                        }
-                        created += 1
-            else:
-                unchanged += 1
+
+    # Track which auto dest events are still needed (for orphan cleanup)
+    matched_auto_ids = set()
+
+    print(f"\n🔄 Syncing events...")
+    for event in event_list:
+        # Check if ANY event on destination matches by title + time
+        match = None
+        for dest_ev in dest_all_events:
+            if (dest_ev['title'] == event['title'] and
+                dest_ev['start_iso'] == event['start_iso'] and
+                dest_ev['end_iso'] == event['end_iso']):
+                match = dest_ev
+                break
+
+        if match:
+            if match['is_auto']:
+                matched_auto_ids.add(match['id'])
+            unchanged += 1
         else:
-            print(f"   ➕ Creating block for: {event['title']} ({event['start'].strftime('%m/%d %H:%M')}-{event['end'].strftime('%H:%M')})")
-            work_event_id = create_blocking_event_on_work_calendar(store, work_calendar, event, blocking_event_title)
-            
-            if work_event_id:
-                mapping[personal_id] = {
-                    'work_event_id': work_event_id,
-                    'title': event['title'],
-                    'start_iso': event['start_iso'],
-                    'end_iso': event['end_iso'],
-                }
-                created += 1
-    
-    # Process deletes
-    deleted_personal_ids = set(mapping.keys()) - set(current_personal_ids.keys())
-    
-    for personal_id in deleted_personal_ids:
-        stored = mapping[personal_id]
-        print(f"   🗑️  Removing block for deleted event: {stored.get('title', 'Unknown')}")
-        
-        if delete_blocking_event_from_work_calendar(store, stored['work_event_id']):
-            del mapping[personal_id]
+            # No matching event on destination — create one
+            print(f"   ➕ Creating: {event['title']} ({datetime.datetime.fromtimestamp(event['start_ts']).strftime('%m/%d %H:%M')})")
+            _create_synced_event(store, dest_cal, event, sync_source_name=sync_source['name'])
+            created += 1
+
+    # Delete orphaned auto-synced events (no matching source event)
+    for dest_ev in dest_auto_events:
+        if dest_ev['id'] not in matched_auto_ids:
+            print(f"   🗑️  Removing orphaned sync: {dest_ev['title']} ({dest_ev['start_iso']})")
+            try:
+                ev = store.eventWithIdentifier_(dest_ev['id'])
+                if ev:
+                    store.removeEvent_span_error_(ev, EventKit.EKSpanThisEvent, None)
+            except Exception as e:
+                print(f"   ❌ Error deleting: {e}")
             deleted += 1
-    
-    # Save updated mapping
-    save_personal_block_mapping(mapping)
-    
-    # Print summary
+
     print(f"\n" + "=" * 70)
-    print(f"  ✅ Sync Complete!")
+    print(f"  ✅ Calendar Sync Complete!")
     print(f"=" * 70)
     print(f"   ➕ Created:   {created}")
     print(f"   📝 Updated:   {updated}")
     print(f"   🗑️  Deleted:   {deleted}")
     print(f"   ⏸️  Unchanged: {unchanged}")
-    if skipped_covered > 0:
-        print(f"   ⏭️  Skipped (covered by manual apt): {skipped_covered}")
     print(f"=" * 70)
-    
+
     return {'success': True, 'created': created, 'updated': updated, 'deleted': deleted, 'unchanged': unchanged}
 
 
+def _create_synced_event(store, dest_calendar, event_data: dict, sync_source_name: str = '') -> Optional[str]:
+    """Create an event on the destination calendar mirroring the source event."""
+    try:
+        new_event = EventKit.EKEvent.eventWithEventStore_(store)
+        new_event.setTitle_(event_data['title'])
+        new_event.setCalendar_(dest_calendar)
+        new_event.setNotes_(f"Synced from {sync_source_name}" + AUTO_MARKER)
+
+        ns_start = NSDate.dateWithTimeIntervalSince1970_(event_data['start_ts'])
+        ns_end = NSDate.dateWithTimeIntervalSince1970_(event_data['end_ts'])
+        new_event.setStartDate_(ns_start)
+        new_event.setEndDate_(ns_end)
+
+        if event_data.get('is_all_day'):
+            new_event.setAllDay_(True)
+
+        success = store.saveEvent_span_error_(new_event, EventKit.EKSpanThisEvent, None)
+        if success:
+            return str(new_event.eventIdentifier())
+        return None
+    except Exception as e:
+        print(f"   ❌ Error creating synced event: {e}")
+        return None
+
+
 def main():
-    """Main entry point."""
+    """Main entry point. Runs blocking first, then calendar sync."""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    result = sync_calendars()
-    sys.exit(0 if result.get('success') else 1)
+
+    config = _load_config()
+
+    # Share a single event store
+    event_store = EventKit.EKEventStore.alloc().init()
+    access_granted = request_calendar_access()
+    if not access_granted:
+        print("❌ Calendar access denied")
+        sys.exit(1)
+
+    # Step 1: Work blocking (personal → work)
+    blocking_result = sync_calendars(event_store=event_store, config=config)
+    if not blocking_result.get('success'):
+        print("❌ Blocking sync failed")
+        sys.exit(1)
+
+    # Step 2: Calendar sync (source → destination)
+    # Runs after blocking so new blocking events are picked up
+    sync_result = sync_source_to_destination(event_store=event_store, config=config)
+    if not sync_result.get('success'):
+        print("❌ Calendar sync failed")
+        sys.exit(1)
+
+    sys.exit(0)
 
 
 if __name__ == "__main__":

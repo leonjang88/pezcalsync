@@ -114,7 +114,7 @@ class SettingsViewModel: ObservableObject {
             if let ex = existing {
                 parsed = parseIconDescriptor(ex.icon)
             } else {
-                parsed = ("brief", "blue", "circle")
+                parsed = ("brief", "blue", "")
             }
             items.append(DisplayCalendarItem(
                 name: info.name,
@@ -511,19 +511,23 @@ struct DisplayCalendarRow: View {
 
             Picker("Type", selection: $item.iconType) {
                 ForEach(iconTypes, id: \.name) { t in
-                    Text(t.displayName).tag(t.name)
+                    Label {
+                        Text(t.displayName)
+                    } icon: {
+                        Image(systemName: t.previewSymbol)
+                            .symbolRenderingMode(.hierarchical)
+                            .foregroundColor(.white)
+                    }
+                    .tag(t.name)
                 }
             }
             .labelsHidden()
             .frame(width: 120)
             .onChange(of: item.iconType) { newType in
-                if let t = iconType(named: newType) {
-                    item.iconColor = allColorNames.first ?? "blue"
-                    item.iconVariant = t.hasVariants ? "circle" : ""
-                }
+                item.iconColor = allColorNames.first ?? "blue"
+                item.iconVariant = ""
             }
 
-            // All types get a color picker (all colors available)
             Picker("Color", selection: $item.iconColor) {
                 ForEach(allColors, id: \.name) { c in
                     Text(c.displayName).tag(c.name)
@@ -532,14 +536,13 @@ struct DisplayCalendarRow: View {
             .labelsHidden()
             .frame(width: 90)
 
-            // Variant picker only for types that have variants
-            if let t = iconType(named: item.iconType), t.hasVariants {
-                Picker("Variant", selection: $item.iconVariant) {
-                    Text("Circle").tag("circle")
-                    Text("Filled").tag("filled")
-                }
-                .labelsHidden()
-                .frame(width: 80)
+            // Circle checkbox — only shown if the icon type has a circle variant
+            if let t = iconType(named: item.iconType), t.hasCircle {
+                Toggle("Circle", isOn: Binding(
+                    get: { item.iconVariant == "circle" },
+                    set: { item.iconVariant = $0 ? "circle" : "" }
+                ))
+                .toggleStyle(.checkbox)
             }
         }
         .padding(.vertical, 1)
