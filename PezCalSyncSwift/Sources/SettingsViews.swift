@@ -78,9 +78,6 @@ class SettingsViewModel: ObservableObject {
     @Published var availableCalendars: [CalendarInfo] = []
     @Published var calendarsBySource: [(source: String, calendars: [CalendarInfo])] = []
 
-    /// Reference to close the window on save/cancel
-    var closeAction: (() -> Void)?
-
     init() {
         loadFromPreferences()
         loadCalendars()
@@ -114,7 +111,7 @@ class SettingsViewModel: ObservableObject {
             if let ex = existing {
                 parsed = parseIconDescriptor(ex.icon)
             } else {
-                parsed = ("brief", "blue", "")
+                parsed = ("brief", "blue", "")  // Default, only visible once checked
             }
             items.append(DisplayCalendarItem(
                 name: info.name,
@@ -243,36 +240,28 @@ class SettingsViewModel: ObservableObject {
         )
 
         PreferencesManager.shared.save(newPrefs)
-
-        // Trigger sync after saving
-        SyncManager.shared.runSync()
-
-        closeAction?()
-    }
-
-    func cancel() {
-        closeAction?()
     }
 }
 
 // MARK: - Story 4.2: Apple -> Google Sync Settings View
 
+private let settingsLabelWidth: CGFloat = 180
+
 struct SyncSettingsSection: View {
     @ObservedObject var viewModel: SettingsViewModel
 
-    private let labelWidth: CGFloat = 170
-
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Calendar Sync")
-                .font(.headline)
-
-            Toggle("Enable Calendar Sync", isOn: $viewModel.calendarSyncEnabled)
+            HStack {
+                Spacer().frame(width: settingsLabelWidth)
+                Toggle("Enable Calendar Sync", isOn: $viewModel.calendarSyncEnabled)
+            }
 
             Group {
                 HStack {
                     Text("Source Calendar:")
-                        .frame(width: labelWidth, alignment: .leading)
+                        .fontWeight(.bold)
+                        .frame(width: settingsLabelWidth, alignment: .trailing)
                     Picker("", selection: $viewModel.calendarSyncSourceCalendar) {
                         Text("Select...").tag("")
                         ForEach(viewModel.availableCalendars) { cal in
@@ -284,7 +273,8 @@ struct SyncSettingsSection: View {
 
                 HStack {
                     Text("Destination Calendar:")
-                        .frame(width: labelWidth, alignment: .leading)
+                        .fontWeight(.bold)
+                        .frame(width: settingsLabelWidth, alignment: .trailing)
                     Picker("", selection: $viewModel.calendarSyncDestination) {
                         Text("Select...").tag("")
                         ForEach(viewModel.availableCalendars) { cal in
@@ -306,36 +296,88 @@ struct SyncSettingsSection: View {
 
 struct ExcludedPatternsSection: View {
     @ObservedObject var viewModel: SettingsViewModel
+    @State private var selectedIndex: Int?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Excluded Event Patterns:")
-                .font(.body)
-
-            Text("Examples: lunch* matches Lunch!, 1:1 * matches 1:1 John")
-                .font(.caption)
-                .foregroundColor(.secondary)
-
-            ForEach(viewModel.excludedPatterns.indices, id: \.self) { index in
-                HStack {
-                    TextField("Pattern", text: Binding(
-                        get: { viewModel.excludedPatterns[index] },
-                        set: { viewModel.excludedPatterns[index] = $0 }
-                    ))
-                    .textFieldStyle(.roundedBorder)
-
-                    Button(action: {
-                        viewModel.excludedPatterns.remove(at: index)
-                    }) {
-                        Image(systemName: "minus.circle.fill")
-                            .foregroundColor(.red)
+            HStack(alignment: .top) {
+                Text("Exclude events matching:")
+                    .fontWeight(.bold)
+                    .frame(width: settingsLabelWidth, alignment: .trailing)
+                VStack(alignment: .leading, spacing: 0) {
+                    // Table header
+                    HStack {
+                        Text("Pattern")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(.secondary)
+                        Spacer()
                     }
-                    .buttonStyle(.borderless)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.gray.opacity(0.15))
+
+                    // Pattern rows
+                    List(selection: $selectedIndex) {
+                        ForEach(viewModel.excludedPatterns.indices, id: \.self) { index in
+                            TextField("Pattern", text: Binding(
+                                get: { viewModel.excludedPatterns[index] },
+                                set: { viewModel.excludedPatterns[index] = $0 }
+                            ))
+                            .textFieldStyle(.plain)
+                            .tag(index)
+                        }
+                    }
+                    .listStyle(.plain)
+                    .frame(height: max(80, CGFloat(viewModel.excludedPatterns.count) * 24 + 8))
+
+                    Divider()
+
+                    // +/- buttons
+                    HStack(spacing: 0) {
+                        Button(action: {
+                            viewModel.excludedPatterns.append("")
+                        }) {
+                            Image(systemName: "plus")
+                                .frame(width: 24, height: 20)
+                        }
+                        .buttonStyle(.borderless)
+
+                        Divider()
+                            .frame(height: 16)
+
+                        Button(action: {
+                            if let idx = selectedIndex, idx < viewModel.excludedPatterns.count {
+                                viewModel.excludedPatterns.remove(at: idx)
+                                selectedIndex = nil
+                            } else if !viewModel.excludedPatterns.isEmpty {
+                                viewModel.excludedPatterns.removeLast()
+                            }
+                        }) {
+                            Image(systemName: "minus")
+                                .frame(width: 24, height: 20)
+                        }
+                        .buttonStyle(.borderless)
+                        .disabled(viewModel.excludedPatterns.isEmpty)
+
+                        Spacer()
+                    }
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 2)
+                    .background(Color.gray.opacity(0.1))
                 }
+                .background(Color.gray.opacity(0.05))
+                .cornerRadius(6)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(Color.gray.opacity(0.3), lineWidth: 1)
+                )
             }
 
-            Button("Add Pattern") {
-                viewModel.excludedPatterns.append("")
+            HStack {
+                Spacer().frame(width: settingsLabelWidth + 8)
+                Text("e.g. lunch* excludes Lunch!, 1:1 * excludes 1:1 John")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
             }
         }
     }
@@ -346,20 +388,20 @@ struct ExcludedPatternsSection: View {
 struct BlockingSettingsSection: View {
     @ObservedObject var viewModel: SettingsViewModel
 
-    private let labelWidth: CGFloat = 170
     let hourOptions: [Int] = Array(6...23)
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Personal → Work Calendar Blocking")
-                .font(.headline)
-
-            Toggle("Enable Calendar Blocking", isOn: $viewModel.blockingEnabled)
+            HStack {
+                Spacer().frame(width: settingsLabelWidth)
+                Toggle("Enable Calendar Blocking", isOn: $viewModel.blockingEnabled)
+            }
 
             Group {
                 HStack {
                     Text("Personal Calendar:")
-                        .frame(width: labelWidth, alignment: .leading)
+                        .fontWeight(.bold)
+                        .frame(width: settingsLabelWidth, alignment: .trailing)
                     Picker("", selection: Binding(
                         get: { viewModel.personalCalendars.first ?? "" },
                         set: { newVal in
@@ -380,7 +422,8 @@ struct BlockingSettingsSection: View {
 
                 HStack {
                     Text("Work Calendar:")
-                        .frame(width: labelWidth, alignment: .leading)
+                        .fontWeight(.bold)
+                        .frame(width: settingsLabelWidth, alignment: .trailing)
                     Picker("", selection: $viewModel.workCalendar) {
                         Text("Select...").tag("")
                         ForEach(viewModel.availableCalendars) { cal in
@@ -392,14 +435,16 @@ struct BlockingSettingsSection: View {
 
                 HStack {
                     Text("Event Title:")
-                        .frame(width: labelWidth, alignment: .leading)
+                        .fontWeight(.bold)
+                        .frame(width: settingsLabelWidth, alignment: .trailing)
                     TextField("Appointment", text: $viewModel.blockingEventTitle)
                         .textFieldStyle(.roundedBorder)
                 }
 
                 HStack {
                     Text("Blocking Hours:")
-                        .frame(width: labelWidth, alignment: .leading)
+                        .fontWeight(.bold)
+                        .frame(width: settingsLabelWidth, alignment: .trailing)
                     Picker("Start", selection: $viewModel.blockingStartHour) {
                         ForEach(hourOptions, id: \.self) { hour in
                             Text(formatHour(hour)).tag(hour)
@@ -416,8 +461,9 @@ struct BlockingSettingsSection: View {
                 }
 
                 HStack {
-                    Text("Blocking Day Schedule:")
-                        .frame(width: labelWidth, alignment: .leading)
+                    Text("Blocking Days:")
+                        .fontWeight(.bold)
+                        .frame(width: settingsLabelWidth, alignment: .trailing)
                     Picker("", selection: $viewModel.blockingDays) {
                         Text("Weekdays Only").tag("weekdays")
                         Text("All Days").tag("all")
@@ -443,49 +489,56 @@ struct BlockingSettingsSection: View {
 struct DisplayCalendarsSection: View {
     @ObservedObject var viewModel: SettingsViewModel
 
-    private let labelWidth: CGFloat = 170
-
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Display in Menu")
-                .font(.headline)
-
             HStack {
-                Text("Days Ahead:")
-                    .frame(width: labelWidth, alignment: .leading)
+                Spacer()
+                Text("Days shown in menu:")
+                    .fontWeight(.bold)
                 Picker("", selection: $viewModel.daysAhead) {
                     ForEach(1...14, id: \.self) { day in
                         Text("\(day)").tag(day)
                     }
                 }
                 .labelsHidden()
+                .fixedSize()
+                Spacer()
             }
 
             HStack {
-                Text("Show Days:")
-                    .frame(width: labelWidth, alignment: .leading)
+                Spacer()
+                Text("Show:")
+                    .fontWeight(.bold)
                 Picker("", selection: $viewModel.displayDayFilter) {
                     Text("All Days").tag("all")
                     Text("Weekdays Only").tag("weekdays")
                 }
                 .labelsHidden()
+                .fixedSize()
+                Spacer()
             }
 
-            ForEach(viewModel.calendarsBySource, id: \.source) { group in
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(group.source)
-                        .font(.subheadline)
-                        .fontWeight(.medium)
-                        .foregroundColor(.secondary)
+            Divider()
 
-                    ForEach(group.calendars) { calInfo in
-                        if let item = viewModel.displayCalendarItems.first(where: { $0.id == calInfo.id }) {
-                            DisplayCalendarRow(item: item)
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(viewModel.calendarsBySource, id: \.source) { group in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(group.source)
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                            .foregroundColor(.secondary)
+
+                        ForEach(group.calendars) { calInfo in
+                            if let item = viewModel.displayCalendarItems.first(where: { $0.id == calInfo.id }) {
+                                DisplayCalendarRow(item: item)
+                            }
                         }
                     }
                 }
-                .padding(.leading, 8)
             }
+            .padding(12)
+            .background(Color.gray.opacity(0.1))
+            .cornerRadius(8)
         }
     }
 }
@@ -494,55 +547,63 @@ struct DisplayCalendarRow: View {
     @ObservedObject var item: DisplayCalendarItem
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 6) {
             Toggle("", isOn: $item.shown)
                 .labelsHidden()
                 .toggleStyle(.checkbox)
 
-            Image(systemName: sfSymbolName(forType: item.iconType, variant: item.iconVariant))
-                .symbolRenderingMode(.hierarchical)
-                .foregroundColor(swiftUIColor(forName: item.iconColor))
-                .font(.system(size: 20))
-                .frame(width: 24)
-
             Text(item.name)
-                .frame(width: 150, alignment: .leading)
+                .frame(minWidth: 80, alignment: .leading)
                 .lineLimit(1)
 
-            Picker("Type", selection: $item.iconType) {
-                ForEach(iconTypes, id: \.name) { t in
-                    Label {
-                        Text(t.displayName)
-                    } icon: {
-                        Image(systemName: t.previewSymbol)
-                            .symbolRenderingMode(.hierarchical)
-                            .foregroundColor(.white)
+            if item.shown {
+                Spacer()
+
+                Image(systemName: sfSymbolName(forType: item.iconType, variant: item.iconVariant))
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundColor(swiftUIColor(forName: item.iconColor))
+                    .font(.system(size: 18))
+                    .frame(width: 22)
+
+                Picker("", selection: $item.iconType) {
+                    ForEach(iconTypes, id: \.name) { t in
+                        Label {
+                            Text(t.displayName)
+                        } icon: {
+                            Image(systemName: t.previewSymbol)
+                                .symbolRenderingMode(.hierarchical)
+                                .foregroundColor(.white)
+                        }
+                        .tag(t.name)
                     }
-                    .tag(t.name)
                 }
-            }
-            .labelsHidden()
-            .frame(width: 120)
-            .onChange(of: item.iconType) { newType in
-                item.iconColor = allColorNames.first ?? "blue"
-                item.iconVariant = ""
-            }
-
-            Picker("Color", selection: $item.iconColor) {
-                ForEach(allColors, id: \.name) { c in
-                    Text(c.displayName).tag(c.name)
+                .labelsHidden()
+                .fixedSize()
+                .onChange(of: item.iconType) { newType in
+                    // Reset circle variant if new icon doesn't support it
+                    if let t = iconType(named: newType), !t.hasCircle {
+                        item.iconVariant = ""
+                    }
                 }
-            }
-            .labelsHidden()
-            .frame(width: 90)
 
-            // Circle checkbox — only shown if the icon type has a circle variant
-            if let t = iconType(named: item.iconType), t.hasCircle {
-                Toggle("Circle", isOn: Binding(
-                    get: { item.iconVariant == "circle" },
-                    set: { item.iconVariant = $0 ? "circle" : "" }
-                ))
-                .toggleStyle(.checkbox)
+                Picker("", selection: $item.iconColor) {
+                    ForEach(allColors, id: \.name) { c in
+                        Text(c.displayName).tag(c.name)
+                    }
+                }
+                .labelsHidden()
+                .fixedSize()
+
+                ZStack {
+                    if let t = iconType(named: item.iconType), t.hasCircle {
+                        Toggle("Circle", isOn: Binding(
+                            get: { item.iconVariant == "circle" },
+                            set: { item.iconVariant = $0 ? "circle" : "" }
+                        ))
+                        .toggleStyle(.checkbox)
+                    }
+                }
+                .frame(width: 70, alignment: .leading)
             }
         }
         .padding(.vertical, 1)
@@ -556,16 +617,10 @@ struct ReleaseCalendarSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Release Calendar")
-                .font(.headline)
-
-            Text("Select a calendar with sprint/release events. The current sprint will appear in the day headers.")
-                .font(.caption)
-                .foregroundColor(.secondary)
-
             HStack {
                 Text("Release Calendar:")
-                    .frame(width: 170, alignment: .leading)
+                    .fontWeight(.bold)
+                    .frame(width: settingsLabelWidth, alignment: .trailing)
                 Picker("", selection: Binding(
                     get: { viewModel.releaseCalendar },
                     set: { newVal in
@@ -581,10 +636,20 @@ struct ReleaseCalendarSection: View {
                 .labelsHidden()
             }
 
+            HStack {
+                Spacer().frame(width: settingsLabelWidth + 8)
+                Text("Pick a team prefix to match a sprint event and show a countdown in the menu.")
+                    .foregroundColor(.secondary)
+                Image(systemName: "questionmark.circle")
+                    .foregroundColor(.secondary)
+                    .help("Scans multi-day events on the release calendar and groups them by the text before the last \" - \" in the title (e.g. \"Vonahi Dev\" from \"Vonahi Dev - VDEV 2026-58\"). Select a team to display a sprint countdown. The sprint ID is extracted from the first number sequence in the matched event title.")
+            }
+
             if !viewModel.availableReleasePrefixes.isEmpty {
                 HStack {
-                    Text("Show Release on Day:")
-                        .frame(width: 170, alignment: .leading)
+                    Text("Team:")
+                        .fontWeight(.bold)
+                        .frame(width: settingsLabelWidth, alignment: .trailing)
                     Picker("", selection: $viewModel.releaseEventPrefix) {
                         Text("None").tag("")
                         ForEach(viewModel.availableReleasePrefixes, id: \.self) { prefix in
@@ -602,52 +667,82 @@ struct ReleaseCalendarSection: View {
 
 struct SettingsView: View {
     @ObservedObject var viewModel: SettingsViewModel
+    @State private var selectedTab = 0
+
+    private let tabs: [(String, String)] = [
+        ("Display", "calendar"),
+        ("Sync", "arrow.triangle.2.circlepath"),
+        ("Blocking", "shield.lefthalf.filled"),
+        ("Release", "shippingbox"),
+    ]
 
     var body: some View {
         VStack(spacing: 0) {
-            TabView {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 20) {
-                        SyncSettingsSection(viewModel: viewModel)
-
-                        Divider()
-
-                        BlockingSettingsSection(viewModel: viewModel)
+            // Custom tab bar with icons
+            HStack(spacing: 2) {
+                ForEach(tabs.indices, id: \.self) { index in
+                    VStack(spacing: 4) {
+                        Image(systemName: tabs[index].1)
+                            .font(.system(size: 20))
+                        Text(tabs[index].0)
+                            .font(.system(size: 11))
                     }
-                    .padding(20)
+                    .frame(width: 80, height: 50)
+                    .foregroundColor(selectedTab == index ? .accentColor : .secondary)
+                    .background(selectedTab == index ? Color.accentColor.opacity(0.15) : Color.clear)
+                    .cornerRadius(8)
+                    .contentShape(Rectangle())
+                    .onTapGesture { selectedTab = index }
                 }
-                .tabItem { Label("Sync", systemImage: "arrow.triangle.2.circlepath") }
-
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 20) {
-                        DisplayCalendarsSection(viewModel: viewModel)
-
-                        Divider()
-
-                        ReleaseCalendarSection(viewModel: viewModel)
-                    }
-                    .padding(20)
-                }
-                .tabItem { Label("Display", systemImage: "calendar") }
             }
+            .padding(.top, 8)
+            .padding(.bottom, 4)
 
             Divider()
 
-            // Save / Cancel
-            HStack {
-                Spacer()
-                Button("Cancel") {
-                    viewModel.cancel()
+            // Tab content
+            Group {
+                switch selectedTab {
+                case 0:
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 20) {
+                            DisplayCalendarsSection(viewModel: viewModel)
+                        }
+                        .padding(20)
+                    }
+                case 1:
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 20) {
+                            SyncSettingsSection(viewModel: viewModel)
+                        }
+                        .padding(20)
+                    }
+                case 2:
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 20) {
+                            BlockingSettingsSection(viewModel: viewModel)
+                        }
+                        .padding(20)
+                    }
+                case 3:
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 20) {
+                            ReleaseCalendarSection(viewModel: viewModel)
+                        }
+                        .padding(20)
+                    }
+                default:
+                    EmptyView()
                 }
-                .keyboardShortcut(.cancelAction)
-
-                Button("Save") {
-                    viewModel.save()
-                }
-                .keyboardShortcut(.defaultAction)
             }
-            .padding(16)
+            .animation(.easeInOut(duration: 0.2), value: selectedTab)
         }
-        .frame(width: 600, height: 700)
+        .frame(width: 600)
+        .fixedSize(horizontal: false, vertical: true)
+        .onReceive(viewModel.objectWillChange) { _ in
+            DispatchQueue.main.async {
+                viewModel.save()
+            }
+        }
     }
 }

@@ -14,14 +14,11 @@ final class SettingsWindowController {
         }
 
         let viewModel = SettingsViewModel()
-        viewModel.closeAction = { [weak self] in
-            self?.closeWindow()
-        }
         let settingsView = SettingsView(viewModel: viewModel)
         let hostingController = NSHostingController(rootView: settingsView)
 
         let newWindow = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 600, height: 700),
+            contentRect: NSRect(x: 0, y: 0, width: 600, height: 500),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
