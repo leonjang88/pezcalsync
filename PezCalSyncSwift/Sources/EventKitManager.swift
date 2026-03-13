@@ -164,7 +164,7 @@ final class EventKitManager {
                 let eventEndDay = cal.startOfDay(for: event.endDate)
                 guard eventStartDay != eventEndDay else { return false }
                 guard let title = event.title else { return false }
-                return title.hasPrefix(titlePrefix)
+                return title.contains(titlePrefix)
             }
     }
 
@@ -183,11 +183,13 @@ final class EventKitManager {
             let eventStartDay = cal.startOfDay(for: event.startDate)
             let eventEndDay = cal.startOfDay(for: event.endDate)
             guard eventStartDay != eventEndDay, let title = event.title else { continue }
-            // Extract prefix: everything before the first digit sequence
-            // e.g., "VDEV 2026-58" -> "VDEV", "VPEN 2026-12" -> "VPEN"
-            let prefix = String(title.prefix(while: { !$0.isNumber })).trimmingCharacters(in: .whitespaces)
-            if !prefix.isEmpty {
-                prefixes.insert(prefix)
+            // Extract the last all-uppercase word before the first digit
+            // e.g., "Vonahi Dev - VDEV 2026-58" -> "VDEV"
+            let beforeDigits = String(title.prefix(while: { !$0.isNumber }))
+            let words = beforeDigits.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
+            // Find the last word that is all uppercase letters
+            if let lastUpper = words.last(where: { $0 == $0.uppercased() && $0.allSatisfy({ $0.isLetter }) }) {
+                prefixes.insert(lastUpper)
             }
         }
         return prefixes.sorted()

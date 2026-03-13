@@ -62,6 +62,10 @@ final class SyncManager {
     // MARK: - Run Sync (Story 3.1)
 
     func runSync() {
+        guard PreferencesManager.shared.preferences.calendarSyncEnabled else {
+            NSLog("[SyncManager] Calendar sync is disabled, skipping.")
+            return
+        }
         guard !isSyncing else {
             NSLog("[SyncManager] Sync already in progress, skipping.")
             return

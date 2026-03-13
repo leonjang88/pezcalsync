@@ -420,7 +420,24 @@ def sync_calendars(event_store=None):
         print(f"❌ Work calendar '{work_calendar_name}' not found")
         return {'success': False, 'error': f'Work calendar not found'}
     
-    # Get existing manual "apt" events to avoid duplicates
+    # Rename existing blocking events if the title has changed
+    renamed = 0
+    for personal_id, stored in mapping.items():
+        work_event_id = stored.get('work_event_id')
+        if not work_event_id:
+            continue
+        try:
+            ev = store.eventWithIdentifier_(work_event_id)
+            if ev and str(ev.title()) != blocking_event_title:
+                ev.setTitle_(blocking_event_title)
+                store.saveEvent_span_error_(ev, EventKit.EKSpanThisEvent, None)
+                renamed += 1
+        except Exception:
+            pass
+    if renamed > 0:
+        print(f"   ✏️  Renamed {renamed} existing blocking events to '{blocking_event_title}'")
+
+    # Get existing manual blocking events to avoid duplicates
     existing_apt_events = get_existing_apt_events_with_config(
         store, work_calendar, days_back, days_ahead, blocking_event_title
     )

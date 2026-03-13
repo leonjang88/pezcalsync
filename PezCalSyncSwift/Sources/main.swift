@@ -120,19 +120,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         timeFormatter.dateFormat = "h:mm a"
         let prefs = preferencesManager.preferences
 
-        // Build day offsets based on settings
+        // Build day offsets: collect N matching days (skipping weekends if weekdays only)
         var dayOffsets: [Int] = []
-        for i in 0..<prefs.daysAhead {
-            let dayDate = cal.date(byAdding: .day, value: i, to: startOfToday)!
+        var offset = 0
+        while dayOffsets.count < prefs.daysAhead {
+            let dayDate = cal.date(byAdding: .day, value: offset, to: startOfToday)!
             if prefs.displayDayFilter == "weekdays" {
                 let weekday = cal.component(.weekday, from: dayDate)
-                // Skip Saturday (7) and Sunday (1)
-                if weekday == 1 || weekday == 7 { continue }
+                if weekday == 1 || weekday == 7 { offset += 1; continue }
             }
-            dayOffsets.append(i)
+            dayOffsets.append(offset)
+            offset += 1
         }
 
-        let endOfRange = cal.date(byAdding: .day, value: prefs.daysAhead, to: startOfToday)!
+        let maxOffset = (dayOffsets.last ?? 0) + 1
+        let endOfRange = cal.date(byAdding: .day, value: maxOffset, to: startOfToday)!
         let ekCalendars = eventKitManager.resolveCalendars(from: prefs.displayCalendars)
         let allEvents = eventKitManager.fetchEvents(from: startOfToday, to: endOfRange, calendars: ekCalendars)
 
@@ -142,10 +144,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return eventKitManager.resolveCalendar(from: ref)
         }()
 
-        // Filter out release calendar events when release calendar is configured
+        // Filter out all release calendar multi-day events when a prefix is selected
+        let selectedPrefix = prefs.releaseEventPrefix
         let filteredEvents: [EKEvent]
-        if let relCal = releaseEKCalendar {
-            filteredEvents = allEvents.filter { $0.calendar?.calendarIdentifier != relCal.calendarIdentifier }
+        if let relCal = releaseEKCalendar, !selectedPrefix.isEmpty {
+            filteredEvents = allEvents.filter { event in
+                guard event.calendar?.calendarIdentifier == relCal.calendarIdentifier else { return true }
+                // Hide all multi-day events from the release calendar
+                let eventStartDay = cal.startOfDay(for: event.startDate)
+                let eventEndDay = cal.startOfDay(for: event.endDate)
+                return eventStartDay == eventEndDay
+            }
         } else {
             filteredEvents = allEvents
         }
@@ -163,7 +172,31 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        for offset in dayOffsets {
+        // Sprint countdown at the very top
+        if let relCal = releaseEKCalendar, !selectedPrefix.isEmpty,
+           let sprintEvent = eventKitManager.fetchSprintEvent(
+               for: startOfToday, calendar: relCal, titlePrefix: selectedPrefix) {
+            let daysLeft = cal.dateComponents([.day], from: startOfToday, to: cal.startOfDay(for: sprintEvent.endDate)).day ?? 0
+            let sprintId: String = {
+                guard let title = sprintEvent.title else { return "" }
+                if let range = title.range(of: #"\d[\d-]+"#, options: .regularExpression) {
+                    return String(title[range])
+                }
+                return ""
+            }()
+            let sprintText: String
+            if daysLeft == 0 {
+                sprintText = "Sprint \(sprintId) | Last day"
+            } else {
+                sprintText = "Sprint \(sprintId) | \(daysLeft)d left"
+            }
+            let sprintItem = NSMenuItem(title: sprintText, action: nil, keyEquivalent: "")
+            sprintItem.isEnabled = false
+            menu.addItem(sprintItem)
+            menu.addItem(NSMenuItem.separator())
+        }
+
+        for (index, offset) in dayOffsets.enumerated() {
             let dayDate = cal.date(byAdding: .day, value: offset, to: startOfToday)!
             let headerTitle: String
             switch offset {
@@ -175,24 +208,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 headerTitle = "\(weekdayFormatter.string(from: dayDate)), \(headerFormatter.string(from: dayDate))"
             }
 
-            // Append sprint countdown from release calendar if configured
-            var finalHeaderTitle = headerTitle
-            if let relCal = releaseEKCalendar, !prefs.releaseEventPrefix.isEmpty,
-               let sprintEvent = eventKitManager.fetchSprintEvent(
-                   for: dayDate, calendar: relCal, titlePrefix: prefs.releaseEventPrefix),
-               let title = sprintEvent.title {
-                let daysLeft = cal.dateComponents([.day], from: cal.startOfDay(for: dayDate), to: cal.startOfDay(for: sprintEvent.endDate)).day ?? 0
-                if daysLeft == 0 {
-                    finalHeaderTitle += " | Last day of \(title)"
-                } else if daysLeft == 1 {
-                    finalHeaderTitle += " | 1 day until the end of \(title)"
-                } else {
-                    finalHeaderTitle += " | \(daysLeft) days until the end of \(title)"
-                }
+            let header = NSMenuItem(title: headerTitle, action: #selector(eventClicked(_:)), keyEquivalent: "")
+            header.target = self
+            header.attributedTitle = NSAttributedString(string: headerTitle, attributes: [
+                .font: NSFont.boldSystemFont(ofSize: 13)
+            ])
+            // Day number calendar icon (e.g., "13.calendar" for the 13th)
+            let dayNumber = cal.component(.day, from: dayDate)
+            if let dayImage = NSImage(systemSymbolName: "\(dayNumber).calendar", accessibilityDescription: nil) {
+                let config = NSImage.SymbolConfiguration(pointSize: 18, weight: .regular)
+                let colorConfig = NSImage.SymbolConfiguration(hierarchicalColor: .white)
+                let combined = config.applying(colorConfig)
+                header.image = dayImage.withSymbolConfiguration(combined) ?? dayImage
             }
-
-            let header = NSMenuItem(title: finalHeaderTitle, action: nil, keyEquivalent: "")
-            header.isEnabled = false
+            if index > 0 {
+                menu.addItem(NSMenuItem.separator())
+            }
             menu.addItem(header)
 
             let dayEvents = (eventsByDay[offset] ?? []).sorted { a, b in
@@ -204,28 +235,26 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 return (a.calendar?.title ?? "") < (b.calendar?.title ?? "")
             }
             if dayEvents.isEmpty {
-                let noEvents = NSMenuItem(title: "  No events", action: nil, keyEquivalent: "")
+                let noEvents = NSMenuItem(title: "No events", action: nil, keyEquivalent: "")
                 noEvents.isEnabled = false
                 menu.addItem(noEvents)
             } else {
                 for event in dayEvents {
                     let title: String
                     if event.isAllDay {
-                        title = "  All day - \(event.title ?? "(No title)")"
+                        title = "All day - \(event.title ?? "(No title)")"
                     } else {
                         let timeString = timeFormatter.string(from: event.startDate)
-                        title = "  \(timeString) - \(event.title ?? "(No title)")"
+                        title = "\(timeString) - \(event.title ?? "(No title)")"
                     }
                     let item: NSMenuItem
                     if event.isAllDay || event.endDate < now {
-                        // All-day or past event: greyed out, not selectable
                         item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
                         item.isEnabled = false
                     } else {
-                        // Current/future timed event: white, selectable
                         item = NSMenuItem(title: title, action: #selector(eventClicked(_:)), keyEquivalent: "")
                         item.target = self
-                        item.isEnabled = true
+                        item.representedObject = event.startDate
                     }
 
                     // Story 2.3: Set calendar icon on the menu item
@@ -238,9 +267,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     menu.addItem(item)
                 }
             }
-
-            menu.addItem(NSMenuItem.separator())
         }
+
+        menu.addItem(NSMenuItem.separator())
 
         // --- Sync section (Story 3.2) ---
         let syncItem = NSMenuItem(title: "Sync Now", action: #selector(syncNowClicked(_:)), keyEquivalent: "")
@@ -307,7 +336,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Menu Actions (placeholders)
 
     @objc func eventClicked(_ sender: NSMenuItem) {
-        // No-op: selectable appearance for current/future events
+        if let date = sender.representedObject as? Date {
+            // Open Apple Calendar to the event's date
+            let timestamp = date.timeIntervalSinceReferenceDate
+            let url = URL(string: "ical://show/date/\(Int(timestamp))")!
+            NSWorkspace.shared.open(url)
+        } else {
+            // Header click — just open Calendar
+            NSWorkspace.shared.open(URL(string: "ical://")!)
+        }
     }
 
     @objc func syncNowClicked(_ sender: NSMenuItem) {

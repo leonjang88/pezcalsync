@@ -46,6 +46,7 @@ class DisplayCalendarItem: ObservableObject, Identifiable {
 
 class SettingsViewModel: ObservableObject {
     // Calendar Sync (Story 4.2)
+    @Published var calendarSyncEnabled: Bool = false
     @Published var calendarSyncSourceCalendar: String = "" // "source|name"
     @Published var calendarSyncDestination: String = "" // "source|name"
 
@@ -55,6 +56,7 @@ class SettingsViewModel: ObservableObject {
     @Published var workCalendar: String = ""
     @Published var blockingStartHour: Int = 8
     @Published var blockingEndHour: Int = 20
+    @Published var blockingEventTitle: String = "Appointment"
     @Published var blockingDays: String = "weekdays"
 
     // Release calendar
@@ -149,6 +151,7 @@ class SettingsViewModel: ObservableObject {
     private func loadFromPreferences() {
         let prefs = PreferencesManager.shared.preferences
 
+        calendarSyncEnabled = prefs.calendarSyncEnabled
         if let src = prefs.calendarSyncSourceCalendar {
             calendarSyncSourceCalendar = "\(src.source)|\(src.name)"
         }
@@ -163,6 +166,7 @@ class SettingsViewModel: ObservableObject {
         }
         blockingStartHour = prefs.blockingStartHour
         blockingEndHour = prefs.blockingEndHour
+        blockingEventTitle = prefs.blockingEventTitle
         blockingDays = prefs.blockingDays
 
         daysAhead = prefs.daysAhead
@@ -219,11 +223,12 @@ class SettingsViewModel: ObservableObject {
 
         let oldPrefs = PreferencesManager.shared.preferences
         let newPrefs = Preferences(
+            calendarSyncEnabled: calendarSyncEnabled,
             calendarSyncSourceCalendar: srcRef,
             calendarSyncDestination: destRef,
             calendarSyncExcludedPatterns: excludedPatterns.filter { !$0.isEmpty },
             blockingEnabled: blockingEnabled,
-            blockingEventTitle: oldPrefs.blockingEventTitle,
+            blockingEventTitle: blockingEventTitle.isEmpty ? "Appointment" : blockingEventTitle,
             blockingStartHour: blockingStartHour,
             blockingEndHour: blockingEndHour,
             blockingDays: blockingDays,
@@ -262,32 +267,37 @@ struct SyncSettingsSection: View {
             Text("Calendar Sync")
                 .font(.headline)
 
-            HStack {
-                Text("Source Calendar:")
-                    .frame(width: labelWidth, alignment: .leading)
-                Picker("", selection: $viewModel.calendarSyncSourceCalendar) {
-                    Text("Select...").tag("")
-                    ForEach(viewModel.availableCalendars) { cal in
-                        Text(cal.displayName).tag(cal.id)
-                    }
-                }
-                .labelsHidden()
-            }
+            Toggle("Enable Calendar Sync", isOn: $viewModel.calendarSyncEnabled)
 
-            HStack {
-                Text("Destination Calendar:")
-                    .frame(width: labelWidth, alignment: .leading)
-                Picker("", selection: $viewModel.calendarSyncDestination) {
-                    Text("Select...").tag("")
-                    ForEach(viewModel.availableCalendars) { cal in
-                        Text(cal.displayName).tag(cal.id)
+            Group {
+                HStack {
+                    Text("Source Calendar:")
+                        .frame(width: labelWidth, alignment: .leading)
+                    Picker("", selection: $viewModel.calendarSyncSourceCalendar) {
+                        Text("Select...").tag("")
+                        ForEach(viewModel.availableCalendars) { cal in
+                            Text(cal.displayName).tag(cal.id)
+                        }
                     }
+                    .labelsHidden()
                 }
-                .labelsHidden()
-            }
 
-            // Story 4.5: Excluded patterns subsection
-            ExcludedPatternsSection(viewModel: viewModel)
+                HStack {
+                    Text("Destination Calendar:")
+                        .frame(width: labelWidth, alignment: .leading)
+                    Picker("", selection: $viewModel.calendarSyncDestination) {
+                        Text("Select...").tag("")
+                        ForEach(viewModel.availableCalendars) { cal in
+                            Text(cal.displayName).tag(cal.id)
+                        }
+                    }
+                    .labelsHidden()
+                }
+
+                ExcludedPatternsSection(viewModel: viewModel)
+            }
+            .disabled(!viewModel.calendarSyncEnabled)
+            .opacity(viewModel.calendarSyncEnabled ? 1.0 : 0.5)
         }
     }
 }
@@ -299,9 +309,8 @@ struct ExcludedPatternsSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Excluded Event Patterns")
-                .font(.subheadline)
-                .fontWeight(.medium)
+            Text("Excluded Event Patterns:")
+                .font(.body)
 
             Text("Examples: lunch* matches Lunch!, 1:1 * matches 1:1 John")
                 .font(.caption)
@@ -382,6 +391,13 @@ struct BlockingSettingsSection: View {
                 }
 
                 HStack {
+                    Text("Event Title:")
+                        .frame(width: labelWidth, alignment: .leading)
+                    TextField("Appointment", text: $viewModel.blockingEventTitle)
+                        .textFieldStyle(.roundedBorder)
+                }
+
+                HStack {
                     Text("Blocking Hours:")
                         .frame(width: labelWidth, alignment: .leading)
                     Picker("Start", selection: $viewModel.blockingStartHour) {
@@ -443,7 +459,6 @@ struct DisplayCalendarsSection: View {
                     }
                 }
                 .labelsHidden()
-                .frame(width: 80)
             }
 
             HStack {
@@ -565,7 +580,7 @@ struct ReleaseCalendarSection: View {
 
             if !viewModel.availableReleasePrefixes.isEmpty {
                 HStack {
-                    Text("Show Event Type:")
+                    Text("Show Release on Day:")
                         .frame(width: 170, alignment: .leading)
                     Picker("", selection: $viewModel.releaseEventPrefix) {
                         Text("None").tag("")

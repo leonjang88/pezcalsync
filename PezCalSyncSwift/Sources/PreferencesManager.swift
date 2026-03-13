@@ -18,6 +18,7 @@ struct DisplayCalendar: Codable, Equatable {
 // MARK: - Preferences
 
 struct Preferences: Codable {
+    var calendarSyncEnabled: Bool
     var calendarSyncSourceCalendar: CalendarRef?
     var calendarSyncDestination: CalendarRef?
     var calendarSyncExcludedPatterns: [String]
@@ -41,6 +42,7 @@ struct Preferences: Codable {
     var daysBack: Int
 
     enum CodingKeys: String, CodingKey {
+        case calendarSyncEnabled = "calendar_sync_enabled"
         case calendarSyncSourceCalendar = "calendar_sync_source_calendar"
         case calendarSyncDestination = "calendar_sync_destination"
         case calendarSyncExcludedPatterns = "calendar_sync_excluded_patterns"
@@ -60,11 +62,12 @@ struct Preferences: Codable {
     }
 
     static let `default` = Preferences(
+        calendarSyncEnabled: false,
         calendarSyncSourceCalendar: nil,
         calendarSyncDestination: nil,
         calendarSyncExcludedPatterns: [],
         blockingEnabled: true,
-        blockingEventTitle: "apt",
+        blockingEventTitle: "Appointment",
         blockingStartHour: 8,
         blockingEndHour: 20,
         blockingDays: "weekdays",
@@ -79,11 +82,12 @@ struct Preferences: Codable {
     )
 
     init(
+        calendarSyncEnabled: Bool = false,
         calendarSyncSourceCalendar: CalendarRef? = nil,
         calendarSyncDestination: CalendarRef? = nil,
         calendarSyncExcludedPatterns: [String] = [],
         blockingEnabled: Bool = true,
-        blockingEventTitle: String = "apt",
+        blockingEventTitle: String = "Appointment",
         blockingStartHour: Int = 8,
         blockingEndHour: Int = 20,
         blockingDays: String = "weekdays",
@@ -96,6 +100,7 @@ struct Preferences: Codable {
         displayDayFilter: String = "all",
         daysBack: Int = 1
     ) {
+        self.calendarSyncEnabled = calendarSyncEnabled
         self.calendarSyncSourceCalendar = calendarSyncSourceCalendar
         self.calendarSyncDestination = calendarSyncDestination
         self.calendarSyncExcludedPatterns = calendarSyncExcludedPatterns
@@ -118,6 +123,7 @@ struct Preferences: Codable {
         let defaults = Preferences.default
         let container = try decoder.container(keyedBy: CodingKeys.self)
 
+        calendarSyncEnabled = (try? container.decode(Bool.self, forKey: .calendarSyncEnabled)) ?? defaults.calendarSyncEnabled
         calendarSyncSourceCalendar = try? container.decode(CalendarRef.self, forKey: .calendarSyncSourceCalendar)
         calendarSyncDestination = try? container.decode(CalendarRef.self, forKey: .calendarSyncDestination)
         calendarSyncExcludedPatterns = (try? container.decode([String].self, forKey: .calendarSyncExcludedPatterns)) ?? defaults.calendarSyncExcludedPatterns
