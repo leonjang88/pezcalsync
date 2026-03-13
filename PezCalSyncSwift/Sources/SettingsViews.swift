@@ -640,9 +640,6 @@ struct ReleaseCalendarSection: View {
                 Spacer().frame(width: settingsLabelWidth + 8)
                 Text("Pick a team prefix to match a sprint event and show a countdown in the menu.")
                     .foregroundColor(.secondary)
-                Image(systemName: "questionmark.circle")
-                    .foregroundColor(.secondary)
-                    .help("Scans multi-day events on the release calendar and groups them by the text before the last \" - \" in the title (e.g. \"Vonahi Dev\" from \"Vonahi Dev - VDEV 2026-58\"). Select a team to display a sprint countdown. The sprint ID is extracted from the first number sequence in the matched event title.")
             }
 
             if !viewModel.availableReleasePrefixes.isEmpty {
@@ -692,7 +689,9 @@ struct SettingsView: View {
                     .background(selectedTab == index ? Color.accentColor.opacity(0.15) : Color.clear)
                     .cornerRadius(8)
                     .contentShape(Rectangle())
-                    .onTapGesture { selectedTab = index }
+                    .onTapGesture {
+                        selectedTab = index
+                    }
                 }
             }
             .padding(.top, 8)
@@ -701,44 +700,39 @@ struct SettingsView: View {
             Divider()
 
             // Tab content
-            Group {
-                switch selectedTab {
-                case 0:
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 20) {
-                            DisplayCalendarsSection(viewModel: viewModel)
-                        }
-                        .padding(20)
-                    }
-                case 1:
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 20) {
-                            SyncSettingsSection(viewModel: viewModel)
-                        }
-                        .padding(20)
-                    }
-                case 2:
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 20) {
-                            BlockingSettingsSection(viewModel: viewModel)
-                        }
-                        .padding(20)
-                    }
-                case 3:
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 20) {
-                            ReleaseCalendarSection(viewModel: viewModel)
-                        }
-                        .padding(20)
-                    }
-                default:
-                    EmptyView()
+            switch selectedTab {
+            case 0:
+                VStack(alignment: .leading, spacing: 20) {
+                    DisplayCalendarsSection(viewModel: viewModel)
                 }
+                .padding(20)
+            case 1:
+                VStack(alignment: .leading, spacing: 20) {
+                    SyncSettingsSection(viewModel: viewModel)
+                }
+                .padding(20)
+            case 2:
+                VStack(alignment: .leading, spacing: 20) {
+                    BlockingSettingsSection(viewModel: viewModel)
+                }
+                .padding(20)
+            case 3:
+                VStack(alignment: .leading, spacing: 20) {
+                    ReleaseCalendarSection(viewModel: viewModel)
+                }
+                .padding(20)
+            default:
+                EmptyView()
             }
-            .animation(.easeInOut(duration: 0.2), value: selectedTab)
         }
         .frame(width: 600)
         .fixedSize(horizontal: false, vertical: true)
+        .onChange(of: selectedTab) { _ in
+            DispatchQueue.main.async {
+                guard let window = NSApp.windows.first(where: { $0.title == "Display" || $0.title == "Sync" || $0.title == "Blocking" || $0.title == "Release" }) else { return }
+                window.title = tabs[selectedTab].0
+            }
+        }
         .onReceive(viewModel.objectWillChange) { _ in
             DispatchQueue.main.async {
                 viewModel.save()
