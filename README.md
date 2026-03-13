@@ -1,57 +1,65 @@
 # PezCalSync
 
-A macOS menubar app that syncs Apple Calendar events to Google Calendar.
+A native macOS menubar calendar app built with Swift and SwiftUI. Displays upcoming events from Apple Calendar with customizable icons, sprint countdown tracking, and personal-to-work calendar blocking sync.
+
+## Features
+
+- **Menubar event display** — See today's and upcoming events at a glance with configurable days ahead
+- **SF Symbol icons** — Color-coded calendar icons with hierarchical gradient rendering
+- **Sprint tracking** — Shows countdown to end of current sprint/release in day headers
+- **Calendar blocking** — Syncs personal calendar events to work calendar as blocking events
+- **Excluded patterns** — Filter out events by title pattern (e.g., "lunch*", "1:1 *")
+- **Weekday filtering** — Option to show only weekdays in the menu
 
 ## Structure
 
 ```
 calendar-tool/
-├── PezCalSync.app/     # Built macOS app (run this)
-├── src/                # Source code
-│   ├── calendar_menubar.py   # Menubar app
-│   └── calendar_sync.py      # Sync logic
-├── venv/               # Python virtual environment
-├── build_app.py        # py2app build configuration
-├── build.sh            # Build script
-└── README.md           # This file
+├── PezCalSyncSwift/        # Swift package (main app)
+│   ├── Package.swift
+│   └── Sources/
+│       ├── main.swift              # App entry, menubar, menu building
+│       ├── EventKitManager.swift   # Calendar access and event fetching
+│       ├── PreferencesManager.swift # JSON preferences (~/Library/Application Support/CalendarSync/)
+│       ├── SettingsViews.swift     # SwiftUI settings (Sync + Display tabs)
+│       ├── SettingsWindow.swift    # NSWindow hosting SwiftUI settings
+│       ├── SyncManager.swift       # Python script runner for blocking sync
+│       └── IconRegistry.swift      # SF Symbol icon types, colors, and helpers
+├── src/                    # Python sync scripts
+│   ├── calendar_sync_eventkit.py   # Personal → Work blocking sync
+│   ├── calendar_sync.py           # Legacy Google Calendar sync
+│   ├── preferences.py
+│   └── settings_window.py
+├── build.sh                # Builds .app bundle
+├── archive/                # Old Python menubar app and PNG icons
+└── docs/                   # Requirements and implementation plan
+```
+
+## Building
+
+**Quick iteration (debug):**
+
+```bash
+cd PezCalSyncSwift
+swift build && .build/debug/PezCalSync
+```
+
+**Release build (.app bundle):**
+
+```bash
+./build.sh
+# Output: PezCalSync.app
 ```
 
 ## Data Location
 
 All user data is stored in `~/Library/Application Support/CalendarSync/`:
-- `credentials.json` - Google OAuth client credentials
-- `token.json` - Google OAuth tokens (auto-generated)
-- `event_mapping.json` - Sync state tracking
-- `logs/` - Application logs
+- `preferences.json` — App settings
+- `personal_block_mapping.json` — Blocking sync state
+- `Logs/` — Application logs
 
-## Usage
+## Requirements
 
-1. **Run the app**: Double-click `PezCalSync.app` or drag to `/Applications`
-2. **Menu bar options**:
-   - Sync Now - Trigger manual sync
-   - View Logs - Open debug logs
-   - Edit Credentials - Open credentials folder
-   - Quit - Close the app
-
-## Building
-
-To rebuild after making changes:
-
-```bash
-./build.sh
-```
-
-Or manually:
-
-```bash
-source venv/bin/activate
-python build_app.py py2app
-cp -r dist/PezCalSync.app .
-```
-
-## Setup (First Time)
-
-1. Set up Google Cloud project with Calendar API enabled
-2. Create OAuth credentials and download `credentials.json`
-3. Place `credentials.json` in `~/Library/Application Support/CalendarSync/`
-4. Run the app - it will prompt for Google authorization on first sync
+- macOS 13+
+- Xcode Command Line Tools (for `swift build`)
+- Python 3 with PyObjC (for blocking sync script)
