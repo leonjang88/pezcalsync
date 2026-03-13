@@ -7,11 +7,11 @@ A lightweight macOS menubar app that puts your calendar right where you need it.
 
 ## TL;DR
 
+- Works with any calendar synced to Apple Calendar (Google, Outlook, iCloud, etc.)
 - Menubar calendar — see your day at a glance
 - Sync work calendar to your phone or personal devices (titles only, for security)
 - Auto-block your work calendar when you have personal events
 - Sprint/release countdown tracking
-- Works with any calendar synced to Apple Calendar (Google, Outlook, iCloud, etc.)
 
 ## How It Works
 
