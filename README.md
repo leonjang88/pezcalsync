@@ -5,6 +5,14 @@ A lightweight macOS menubar app that puts your calendar right where you need it.
 <!-- TODO: Add screenshot of menubar dropdown here -->
 <!-- ![PezCalSync menubar](docs/screenshot.png) -->
 
+## TL;DR
+
+- Menubar calendar — see your day at a glance
+- Sync work calendar to your phone or personal devices (titles only, for security)
+- Auto-block your work calendar when you have personal events
+- Sprint/release countdown tracking
+- Works with any calendar synced to Apple Calendar (Google, Outlook, iCloud, etc.)
+
 ## How It Works
 
 PezCalSync reads from **Apple Calendar**, so any calendars you want to see need to be synced there first (Google, Outlook, iCloud — they all work once added to Apple Calendar).
