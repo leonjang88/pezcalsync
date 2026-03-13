@@ -1,17 +1,47 @@
 # PezCalSync
 
-A native macOS menubar calendar app built with Swift and SwiftUI. Displays upcoming events from Apple Calendar with customizable icons, sprint countdown tracking, and personal-to-work calendar blocking sync.
+A lightweight macOS menubar app that puts your calendar right where you need it. See your upcoming events at a glance, keep personal and work calendars in sync, and never miss a meeting again — all from your menu bar.
 
-## Features
+<!-- TODO: Add screenshot of menubar dropdown here -->
+<!-- ![PezCalSync menubar](docs/screenshot.png) -->
 
-- **Menubar event display** — See today's and upcoming events at a glance with configurable days ahead
-- **SF Symbol icons** — Color-coded calendar icons with hierarchical gradient rendering
-- **Sprint tracking** — Shows countdown to end of current sprint/release in day headers
-- **Calendar blocking** — Syncs personal calendar events to work calendar as blocking events
-- **Excluded patterns** — Filter out events by title pattern (e.g., "lunch*", "1:1 *")
-- **Weekday filtering** — Option to show only weekdays in the menu
+## What It Does
 
-## Structure
+- **See your schedule at a glance** — Upcoming events appear right in your menu bar, organized by day
+- **Colorful event icons** — Each calendar gets its own color-coded icon so you can tell them apart instantly
+- **Sync your work calendar where you want it** — Pull your work calendar into a personal calendar you can access anywhere — your phone, your Mac, or even iPhone Shortcuts automations like meeting alarms. Only event titles are synced, never descriptions, so no sensitive details leave your work account
+- **Block your work calendar automatically** — Personal events (doctor appointments, errands, etc.) get synced to your work calendar as "busy" blocks, so coworkers won't book over them
+- **Sprint countdown** — Track how many days are left in your current sprint or release cycle
+- **Weekdays only mode** — Skip weekends if you just want to see your work week
+
+## Install
+
+1. Download `PezCalSync.app.zip` from the [latest release](https://github.com/leonjang88/pezcalsync/releases/latest)
+2. Unzip the file
+3. Drag `PezCalSync.app` into your Applications folder
+4. Open PezCalSync — you'll see a calendar icon appear in your menu bar
+5. Grant calendar access when prompted
+
+**Requires macOS 13 (Ventura) or later.**
+
+## Settings
+
+Click the calendar icon in your menu bar and select **Settings** to customize:
+
+- **Display** — Choose how many days ahead to show, toggle weekday-only mode, and set up excluded event patterns
+- **Sync** — Configure which personal calendar syncs to your work calendar
+- **Blocking** — Manage how personal events appear on your work calendar
+- **Release** — Set up sprint/release tracking dates
+
+Settings auto-save as you change them.
+
+---
+
+## Development
+
+Everything below is for contributors and developers.
+
+### Project Structure
 
 ```
 calendar-tool/
@@ -20,7 +50,7 @@ calendar-tool/
 │   └── Sources/
 │       ├── main.swift              # App entry, menubar, menu building
 │       ├── EventKitManager.swift   # Calendar access and event fetching
-│       ├── PreferencesManager.swift # JSON preferences (~/Library/Application Support/CalendarSync/)
+│       ├── PreferencesManager.swift # JSON preferences
 │       ├── SettingsViews.swift     # SwiftUI settings (Sync + Display tabs)
 │       ├── SettingsWindow.swift    # NSWindow hosting SwiftUI settings
 │       ├── SyncManager.swift       # Python script runner for blocking sync
@@ -35,7 +65,7 @@ calendar-tool/
 └── docs/                   # Requirements and implementation plan
 ```
 
-## Building
+### Building
 
 **Quick iteration (debug):**
 
@@ -51,14 +81,14 @@ swift build && .build/debug/PezCalSync
 # Output: PezCalSync.app
 ```
 
-## Data Location
+### Data Location
 
 All user data is stored in `~/Library/Application Support/CalendarSync/`:
 - `preferences.json` — App settings
 - `personal_block_mapping.json` — Blocking sync state
 - `Logs/` — Application logs
 
-## Requirements
+### Dev Requirements
 
 - macOS 13+
 - Xcode Command Line Tools (for `swift build`)
