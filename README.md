@@ -5,6 +5,10 @@ A lightweight macOS menubar app that puts your calendar right where you need it.
 <!-- TODO: Add screenshot of menubar dropdown here -->
 <!-- ![PezCalSync menubar](docs/screenshot.png) -->
 
+## How It Works
+
+PezCalSync reads from **Apple Calendar**, so any calendars you want to see need to be synced there first (Google, Outlook, iCloud — they all work once added to Apple Calendar).
+
 ## What It Does
 
 - **See your schedule at a glance** — Upcoming events appear right in your menu bar, organized by day
