@@ -23,7 +23,7 @@ final class SettingsWindowController {
             backing: .buffered,
             defer: false
         )
-        newWindow.title = "PezCalSync Settings"
+        newWindow.title = "Display"
         newWindow.contentViewController = hostingController
         newWindow.center()
         newWindow.isReleasedWhenClosed = false
@@ -42,7 +42,6 @@ final class SettingsWindowController {
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    /// Called externally to close the window (e.g. save/cancel).
     func closeWindow() {
         window?.close()
     }
