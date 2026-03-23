@@ -352,10 +352,10 @@ def create_blocking_event_on_work_calendar(store, work_calendar, personal_event:
         event.setStartDate_(ns_start)
         event.setEndDate_(ns_end)
         
-        event.setNotes_(blocking_title + AUTO_MARKER)
-        
+        event.setNotes_(title + AUTO_MARKER)
+
         success = store.saveEvent_span_error_(event, EventKit.EKSpanThisEvent, None)
-        
+
         if success:
             return str(event.eventIdentifier())
         else:
@@ -367,19 +367,20 @@ def create_blocking_event_on_work_calendar(store, work_calendar, personal_event:
         return None
 
 
-def update_blocking_event_on_work_calendar(store, work_event_id: str, personal_event: dict) -> bool:
+def update_blocking_event_on_work_calendar(store, work_event_id: str, personal_event: dict, blocking_title: str = None) -> bool:
     """Update an existing blocking event on the work calendar."""
+    title = blocking_title or BLOCKING_EVENT_TITLE
     try:
         event = store.eventWithIdentifier_(work_event_id)
         if not event:
             return False
-        
+
         ns_start = NSDate.dateWithTimeIntervalSince1970_(personal_event['start'].timestamp())
         ns_end = NSDate.dateWithTimeIntervalSince1970_(personal_event['end'].timestamp())
         event.setStartDate_(ns_start)
         event.setEndDate_(ns_end)
-        
-        event.setNotes_(blocking_title + AUTO_MARKER)
+
+        event.setNotes_(title + AUTO_MARKER)
         
         success = store.saveEvent_span_error_(event, EventKit.EKSpanThisEvent, None)
         return success
