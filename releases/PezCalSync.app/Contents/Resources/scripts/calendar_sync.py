@@ -89,6 +89,9 @@ APPLE_CALENDAR_FILTER = ["Calendar"]
 # Events to exclude by title (case-insensitive partial match)
 EXCLUDED_EVENT_TITLES = ["lunch!"]
 
+# Skip events marked as free or tentative in Apple Calendar
+SKIP_FREE_EVENTS = True
+
 # Prefix for synced events (helps identify them)
 EVENT_PREFIX = ""  # Set to something like "[Work] " if you want to prefix events
 
@@ -284,6 +287,11 @@ def get_apple_calendar_events(days_back: int = 1, days_ahead: int = 14, store=No
         # Skip excluded events by title
         title = str(event.title() or '')
         if any(excluded.lower() in title.lower() for excluded in EXCLUDED_EVENT_TITLES):
+            skipped_excluded += 1
+            continue
+
+        # Skip free/tentative events
+        if SKIP_FREE_EVENTS and event.availability() in (EventKit.EKEventAvailabilityFree, EventKit.EKEventAvailabilityTentative):
             skipped_excluded += 1
             continue
             
@@ -658,8 +666,23 @@ def sync_personal_to_work_blocking(store) -> dict:
             stored = mapping[personal_id]
             work_event_id = stored['work_event_id']
             
+            # Check if the work event still exists (user may have deleted it manually)
+            work_event_exists = store.eventWithIdentifier_(work_event_id) is not None
+            
+            if not work_event_exists:
+                # Work event was deleted manually - recreate it
+                print(f"   🔄 Recreating deleted block for: {event['title']}")
+                new_work_id = create_blocking_event_on_work_calendar(store, work_calendar, event)
+                if new_work_id:
+                    mapping[personal_id] = {
+                        'work_event_id': new_work_id,
+                        'title': event['title'],
+                        'start_iso': event['start_iso'],
+                        'end_iso': event['end_iso'],
+                    }
+                    created += 1
             # Check if event changed
-            if (stored.get('start_iso') != event['start_iso'] or
+            elif (stored.get('start_iso') != event['start_iso'] or
                 stored.get('end_iso') != event['end_iso']):
                 
                 print(f"   📝 Updating block for: {event['title']}")
@@ -910,6 +933,21 @@ def delete_google_event(service, google_id: str) -> bool:
         return False
 
 
+def check_google_event_exists(service, google_id: str) -> bool:
+    """Check if a Google Calendar event still exists."""
+    try:
+        service.events().get(
+            calendarId=GOOGLE_CALENDAR_ID,
+            eventId=google_id
+        ).execute()
+        return True
+    except HttpError as error:
+        if error.resp.status == 404:
+            return False
+        # For other errors, assume it exists to avoid unnecessary recreation
+        return True
+
+
 # ============================================================================
 # Sync Logic
 # ============================================================================
@@ -967,8 +1005,24 @@ def sync_calendars(event_store=None):
             stored = mapping[apple_id]
             google_id = stored['google_id']
             
+            # Check if Google event still exists (user may have deleted it manually)
+            google_event_exists = check_google_event_exists(service, google_id)
+            
+            if not google_event_exists:
+                # Google event was deleted manually - recreate it
+                print(f"   🔄 Recreating deleted event: {event['title']}")
+                new_google_id = create_google_event(service, event)
+                if new_google_id:
+                    mapping[apple_id] = {
+                        'google_id': new_google_id,
+                        'title': event['title'],
+                        'start_iso': event['start_iso'],
+                        'end_iso': event['end_iso'],
+                        'location': event['location'],
+                    }
+                    created += 1
             # Check if event changed (compare key fields)
-            if (stored.get('title') != event['title'] or
+            elif (stored.get('title') != event['title'] or
                 stored.get('start_iso') != event['start_iso'] or
                 stored.get('end_iso') != event['end_iso'] or
                 stored.get('location') != event['location']):
