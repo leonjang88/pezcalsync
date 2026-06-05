@@ -29,8 +29,8 @@ mkdir -p "${MACOS}" "${RESOURCES}/scripts"
 cp "${BINARY_PATH}" "${MACOS}/${APP_NAME}"
 
 # Copy Python sync scripts
-cp src/calendar_sync.py "${RESOURCES}/scripts/"
-cp src/calendar_sync_eventkit.py "${RESOURCES}/scripts/"
+cp src/work_to_personal_sync.py "${RESOURCES}/scripts/"
+cp src/personal_to_work_sync.py "${RESOURCES}/scripts/"
 cp src/settings_window.py "${RESOURCES}/scripts/"
 cp src/preferences.py "${RESOURCES}/scripts/"
 

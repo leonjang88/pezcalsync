@@ -94,11 +94,11 @@ final class SyncManager {
             let pythonPath = self.locatePython()
             NSLog("[SyncManager] Using Python at: %@", pythonPath)
 
-            let script1 = "\(self.scriptDirectory)/calendar_sync_eventkit.py"
+            let script1 = "\(self.scriptDirectory)/personal_to_work_sync.py"
             let result1 = self.runScript(pythonPath: pythonPath, scriptPath: script1)
 
             if !result1 {
-                NSLog("[SyncManager] calendar_sync_eventkit.py failed.")
+                NSLog("[SyncManager] personal_to_work_sync.py failed.")
                 self.finishSync(status: .failed)
                 return
             }

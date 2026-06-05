@@ -213,6 +213,11 @@ def get_personal_calendar_events_with_config(days_back: int, days_ahead: int, ca
             skipped_all_day += 1
             continue
 
+        # Skip free/tentative events
+        if event.availability() in (EventKit.EKEventAvailabilityFree, EventKit.EKEventAvailabilityTentative):
+            skipped_excluded += 1
+            continue
+
         # Skip events matching excluded patterns
         title = str(event.title() or "")
         if excluded_patterns and _matches_excluded(title, excluded_patterns):
